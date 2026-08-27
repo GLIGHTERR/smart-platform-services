@@ -7,8 +7,12 @@ const config: Config = {
   transform: { '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.json' }] },
   collectCoverageFrom: [
     'libs/common/src/**/*.ts',
+    'libs/identity/src/services/**/*.ts',
+    'libs/identity/src/security/**/*.ts',
     '!libs/common/src/index.ts',
     '!libs/common/src/bootstrap.ts',
+    '!libs/identity/src/security/auth-context.ts',
+    '!**/*.spec.ts',
     '!**/*.module.ts',
   ],
   coverageDirectory: 'coverage',

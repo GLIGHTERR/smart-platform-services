@@ -17,6 +17,14 @@ const environmentSchema = Joi.object({
   DATABASE_SSL: Joi.boolean().truthy('true').falsy('false').default(false),
   DATABASE_SSL_REJECT_UNAUTHORIZED: Joi.boolean().truthy('true').falsy('false').default(true),
   DATABASE_POOL_SIZE: Joi.number().integer().min(1).max(100).default(10),
+  JWT_ACCESS_SECRET: Joi.string().min(32).required(),
+  JWT_REFRESH_SECRET: Joi.string().min(32).required(),
+  JWT_ISSUER: Joi.string().min(3).default('smart-platform-services'),
+  JWT_ACCESS_TTL_SECONDS: Joi.number().integer().min(60).max(3600).default(900),
+  JWT_REFRESH_TTL_SECONDS: Joi.number().integer().min(3600).max(7776000).default(2592000),
+  OTP_HASH_SECRET: Joi.string().min(32).required(),
+  OTP_TTL_SECONDS: Joi.number().integer().min(60).max(900).default(300),
+  OTP_DELIVERY_MODE: Joi.string().valid('disabled', 'console').default('disabled'),
 }).unknown(true);
 
 export function validateEnvironment(input: Record<string, unknown>): Record<string, unknown> {
@@ -61,6 +69,16 @@ export function configuration(): Record<string, unknown> {
       ssl: process.env.DATABASE_SSL === 'true',
       sslRejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
       poolSize: Number(process.env.DATABASE_POOL_SIZE ?? 10),
+    },
+    auth: {
+      jwtAccessSecret: process.env.JWT_ACCESS_SECRET,
+      jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
+      jwtIssuer: process.env.JWT_ISSUER ?? 'smart-platform-services',
+      accessTtlSeconds: Number(process.env.JWT_ACCESS_TTL_SECONDS ?? 900),
+      refreshTtlSeconds: Number(process.env.JWT_REFRESH_TTL_SECONDS ?? 2592000),
+      otpHashSecret: process.env.OTP_HASH_SECRET,
+      otpTtlSeconds: Number(process.env.OTP_TTL_SECONDS ?? 300),
+      otpDeliveryMode: process.env.OTP_DELIVERY_MODE ?? 'disabled',
     },
   };
 }

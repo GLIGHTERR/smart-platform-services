@@ -1,9 +1,23 @@
 export type ActorRole = 'renter' | 'owner' | 'admin';
+export type ActorStatus = 'pending' | 'active' | 'suspended' | 'disabled';
+export type SocialProvider = 'google' | 'facebook' | 'apple';
 
 export interface ActorSnapshot {
   id: string;
   roles: readonly ActorRole[];
-  status: 'pending' | 'active' | 'suspended' | 'disabled';
+  status: ActorStatus;
+}
+
+export interface AuthenticatedActor extends ActorSnapshot {
+  sessionId: string;
+}
+
+export interface AuthSessionTokens {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: 'Bearer';
+  accessExpiresInSeconds: number;
+  refreshExpiresInSeconds: number;
 }
 
 export abstract class IdentityQueryService {

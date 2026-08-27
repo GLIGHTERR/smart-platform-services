@@ -4,7 +4,7 @@ This repository implements the boundary decision recorded by PM for GLI-12.
 
 | Module | Owns | Public collaboration surface |
 | --- | --- | --- |
-| identity | users, roles, profiles and access | `IdentityQueryService`, `IdentityAccessService` |
+| identity | users, roles, profiles, social identities, OTP, sessions and access | `IdentityQueryService`, `IdentityAccessService`, JWT/role guards |
 | property | properties, rooms and inventory status | `PropertyQueryService`, `PropertyPolicyService`, `PropertyCommandService` |
 | booking | viewing request lifecycle | `BookingQueryService`, `BookingPolicyService`, `BookingCommandService` |
 | contract | rental contract and signed terms | `ContractQueryService`, `ContractPolicyService`, `ContractCommandService` |

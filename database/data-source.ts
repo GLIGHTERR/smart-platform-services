@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { InitialPlatformSchema1700000000000 } from './migrations/1700000000000-initial-platform-schema';
+import { IdentityAuthSchema1700000001000 } from './migrations/1700000001000-identity-auth-schema';
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -27,7 +28,7 @@ const dataSource = new DataSource({
   logging: ['error'],
   migrationsTableName: 'platform_migrations',
   migrationsTransactionMode: 'all',
-  migrations: [InitialPlatformSchema1700000000000],
+  migrations: [InitialPlatformSchema1700000000000, IdentityAuthSchema1700000001000],
 });
 
 export default dataSource;

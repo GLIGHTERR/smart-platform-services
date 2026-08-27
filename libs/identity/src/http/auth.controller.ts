@@ -1,0 +1,132 @@
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request } from 'express';
+import type { AuthenticatedActor } from '../public/identity.contracts';
+import { CurrentActor } from '../security/auth-context';
+import { JwtAuthGuard } from '../security/jwt-auth.guard';
+import type { SessionClientContext } from '../security/jwt-session.service';
+import { AuthService } from '../services/auth.service';
+import {
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  LoginDto,
+  OtpRequestDto,
+  OtpVerifyDto,
+  RefreshTokenDto,
+  RegisterDto,
+  ResetPasswordDto,
+  SocialLoginDto,
+} from './auth.dto';
+
+@Controller('auth')
+export class AuthController {
+  public constructor(private readonly auth: AuthService) {}
+
+  @Post('register')
+  public register(
+    @Body() input: RegisterDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['register']> {
+    return this.auth.register(input, this.context(request));
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  public login(@Body() input: LoginDto, @Req() request: Request): ReturnType<AuthService['login']> {
+    return this.auth.login(input, this.context(request));
+  }
+
+  @Post('otp/request')
+  @HttpCode(HttpStatus.ACCEPTED)
+  public requestOtp(
+    @Body() input: OtpRequestDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['requestOtp']> {
+    return this.auth.requestOtp(input.phone, input.purpose, this.context(request));
+  }
+
+  @Post('otp/verify')
+  @HttpCode(HttpStatus.OK)
+  public verifyOtp(
+    @Body() input: OtpVerifyDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['verifyOtp']> {
+    return this.auth.verifyOtp(input.phone, input.purpose, input.code, this.context(request));
+  }
+
+  @Post('password/forgot')
+  @HttpCode(HttpStatus.ACCEPTED)
+  public forgotPassword(
+    @Body() input: ForgotPasswordDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['forgotPassword']> {
+    return this.auth.forgotPassword(input.phone, this.context(request));
+  }
+
+  @Post('password/reset')
+  @HttpCode(HttpStatus.OK)
+  public resetPassword(
+    @Body() input: ResetPasswordDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['resetPassword']> {
+    return this.auth.resetPassword(input, this.context(request));
+  }
+
+  @Post('password/change')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  public changePassword(
+    @CurrentActor() actor: AuthenticatedActor,
+    @Body() input: ChangePasswordDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['changePassword']> {
+    return this.auth.changePassword(actor, input, this.context(request));
+  }
+
+  @Post('token/refresh')
+  @HttpCode(HttpStatus.OK)
+  public refresh(
+    @Body() input: RefreshTokenDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['refresh']> {
+    return this.auth.refresh(input.refreshToken, this.context(request));
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  public async logout(@Body() input: RefreshTokenDto): Promise<void> {
+    await this.auth.logout(input.refreshToken);
+  }
+
+  @Post('oauth/:provider')
+  @HttpCode(HttpStatus.OK)
+  public socialLogin(
+    @Param('provider') provider: string,
+    @Body() input: SocialLoginDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['socialLogin']> {
+    return this.auth.socialLogin(provider, input, this.context(request));
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  public me(@CurrentActor() actor: AuthenticatedActor): AuthenticatedActor {
+    return actor;
+  }
+
+  private context(request: Request): SessionClientContext {
+    return {
+      ipAddress: request.ip || null,
+      userAgent: request.get('user-agent') ?? null,
+    };
+  }
+}
