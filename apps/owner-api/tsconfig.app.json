@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.build.json",
+  "compilerOptions": { "outDir": "../../dist/apps/owner-api" },
+  "include": ["src/**/*.ts", "../../libs/**/*.ts"]
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "monorepo": true,
+  "root": "apps/renter-api",
+  "sourceRoot": "apps/renter-api/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true
+  },
+  "projects": {
+    "renter-api": {
+      "type": "application",
+      "root": "apps/renter-api",
+      "entryFile": "main",
+      "sourceRoot": "apps/renter-api/src",
+      "compilerOptions": { "tsConfigPath": "apps/renter-api/tsconfig.app.json" }
+    },
+    "owner-api": {
+      "type": "application",
+      "root": "apps/owner-api",
+      "entryFile": "main",
+      "sourceRoot": "apps/owner-api/src",
+      "compilerOptions": { "tsConfigPath": "apps/owner-api/tsconfig.app.json" }
+    },
+    "admin-api": {
+      "type": "application",
+      "root": "apps/admin-api",
+      "entryFile": "main",
+      "sourceRoot": "apps/admin-api/src",
+      "compilerOptions": { "tsConfigPath": "apps/admin-api/tsconfig.app.json" }
+    },
+    "worker": {
+      "type": "application",
+      "root": "apps/worker",
+      "entryFile": "main",
+      "sourceRoot": "apps/worker/src",
+      "compilerOptions": { "tsConfigPath": "apps/worker/tsconfig.app.json" }
+    }
+  }
+}
