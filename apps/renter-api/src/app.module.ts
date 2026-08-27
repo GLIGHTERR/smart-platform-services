@@ -10,6 +10,7 @@ import { MediaModule } from '@platform/media';
 import { NotificationModule } from '@platform/notification';
 import { PaymentModule } from '@platform/payment';
 import { PropertyModule } from '@platform/property';
+import { RenterSessionController } from './session.controller';
 
 @Module({
   imports: [
@@ -26,5 +27,6 @@ import { PropertyModule } from '@platform/property';
     NotificationModule,
     MediaModule,
   ],
+  controllers: [RenterSessionController],
 })
 export class RenterApiModule {}

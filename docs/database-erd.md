@@ -7,6 +7,8 @@ The first migration owns the complete GLI-12 baseline. Application startup never
 erDiagram
   USERS ||--o{ USER_ROLES : receives
   ROLES ||--o{ USER_ROLES : grants
+  USERS ||--o{ SOCIAL_IDENTITIES : authenticates_with
+  USERS ||--o{ AUTH_SESSIONS : owns
   USERS ||--o| OWNER_PROFILES : has
   USERS ||--o| RENTER_PROFILES : has
   USERS ||--o{ PROPERTIES : owns
@@ -25,6 +27,13 @@ erDiagram
   USERS ||--o{ NOTIFICATIONS : receives
   USERS ||--o{ MEDIA_FILES : uploads
 ```
+
+OTP challenges are keyed by normalized phone and purpose without a user foreign key so
+forgot-password requests can return an enumeration-safe response. `AUTH_THROTTLE_BUCKETS` stores
+keyed HMAC digests of phone/IP keys and bounded windows; neither table stores an OTP code or raw
+throttle key.
+`AUTH_SESSIONS` stores only refresh-token hashes and a family identifier used to revoke every
+descendant when a rotated token is reused.
 
 ## Booking and contract support
 

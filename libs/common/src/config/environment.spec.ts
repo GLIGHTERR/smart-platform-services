@@ -7,6 +7,9 @@ describe('environment configuration', () => {
     DATABASE_NAME: 'smart_platform',
     DATABASE_USER: 'smart_platform',
     DATABASE_PASSWORD: 'local-password',
+    JWT_ACCESS_SECRET: 'test-access-secret-at-least-32-characters',
+    JWT_REFRESH_SECRET: 'test-refresh-secret-at-least-32-characters',
+    OTP_HASH_SECRET: 'test-otp-secret-at-least-32-characters',
   };
 
   it('validates and converts the environment', () => {
@@ -23,7 +26,7 @@ describe('environment configuration', () => {
 
   it('reports all missing required values', () => {
     expect(() => validateEnvironment({})).toThrow(
-      /CORS_ORIGINS.*DATABASE_HOST.*DATABASE_NAME.*DATABASE_USER.*DATABASE_PASSWORD/,
+      /CORS_ORIGINS.*DATABASE_HOST.*DATABASE_NAME.*DATABASE_USER.*DATABASE_PASSWORD.*JWT_ACCESS_SECRET.*JWT_REFRESH_SECRET.*OTP_HASH_SECRET/,
     );
   });
 
