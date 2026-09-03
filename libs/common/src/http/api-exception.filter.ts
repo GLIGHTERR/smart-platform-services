@@ -38,7 +38,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
         message: isUnexpected
           ? 'An unexpected error occurred'
           : this.getPublicMessage(exceptionResponse.message),
-        ...(exceptionResponse.details === undefined ? {} : { details: exceptionResponse.details }),
+        ...(!isUnexpected && exceptionResponse.details !== undefined
+          ? { details: exceptionResponse.details }
+          : {}),
         requestId: request.requestId,
         timestamp: new Date().toISOString(),
         path: request.originalUrl,

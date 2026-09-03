@@ -1,4 +1,8 @@
-import { BadRequestException, type ArgumentsHost } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  type ArgumentsHost,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import type { JsonLoggerService } from '../logging/json-logger.service';
 import { ApiExceptionFilter } from './api-exception.filter';
@@ -70,6 +74,37 @@ describe('ApiExceptionFilter', () => {
     });
     expect(harness.loggerError).toHaveBeenCalledWith(
       'database password leaked',
+      expect.any(String),
+      'ApiExceptionFilter',
+    );
+  });
+
+  it('does not expose HttpException details for server errors', () => {
+    const harness = createHarness();
+
+    harness.filter.catch(
+      new InternalServerErrorException({
+        code: 'DATABASE_FAILURE',
+        message: 'database connection failed: secret-host',
+        details: { host: 'secret-host', password: 'not-for-clients' },
+      }),
+      harness.host,
+    );
+
+    expect(harness.status).toHaveBeenCalledWith(500);
+    expect(harness.json).toHaveBeenCalledWith({
+      error: expect.objectContaining({
+        code: 'DATABASE_FAILURE',
+        message: 'An unexpected error occurred',
+        requestId: 'request-123',
+        path: '/bookings',
+      }),
+    });
+    const payload = harness.json.mock.calls[0][0] as { error: Record<string, unknown> };
+    expect(payload.error).not.toHaveProperty('details');
+    expect(JSON.stringify(payload)).not.toContain('secret-host');
+    expect(harness.loggerError).toHaveBeenCalledWith(
+      'database connection failed: secret-host',
       expect.any(String),
       'ApiExceptionFilter',
     );
