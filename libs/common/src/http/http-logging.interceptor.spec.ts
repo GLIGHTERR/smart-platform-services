@@ -6,11 +6,12 @@ import { HttpLoggingInterceptor } from './http-logging.interceptor';
 import type { RequestWithId } from './request-id.middleware';
 
 describe('HttpLoggingInterceptor', () => {
-  function createContext(type: string = 'http'): ExecutionContext {
+  function createContext(type: string = 'http', originalUrl: string = '/health'): ExecutionContext {
     const request = {
       requestId: 'request-123',
       method: 'GET',
-      originalUrl: '/health',
+      originalUrl,
+      path: new URL(originalUrl, 'http://localhost').pathname,
     } as RequestWithId;
     const response = { statusCode: 200 } as Response;
 
@@ -34,12 +35,12 @@ describe('HttpLoggingInterceptor', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
-  it('logs a completed HTTP request', async () => {
+  it('logs a completed HTTP request without its query string', async () => {
     const write = jest.fn();
     const interceptor = new HttpLoggingInterceptor({ write } as unknown as JsonLoggerService);
     const handler = { handle: () => of({ ok: true }) } as CallHandler;
 
-    await firstValueFrom(interceptor.intercept(createContext(), handler));
+    await firstValueFrom(interceptor.intercept(createContext('http', '/health?token=secret-value'), handler));
 
     expect(write).toHaveBeenCalledWith(
       'log',
@@ -53,6 +54,7 @@ describe('HttpLoggingInterceptor', () => {
         durationMs: expect.any(Number),
       }),
     );
+    expect(JSON.stringify(write.mock.calls[0][3])).not.toContain('secret-value');
   });
 
   it('logs and rethrows failed HTTP requests', async () => {
@@ -61,14 +63,17 @@ describe('HttpLoggingInterceptor', () => {
     const error = new Error('request failed');
     const handler = { handle: () => throwError(() => error) } as CallHandler;
 
-    await expect(firstValueFrom(interceptor.intercept(createContext(), handler))).rejects.toBe(
+    await expect(
+      firstValueFrom(interceptor.intercept(createContext('http', '/health?token=secret-value'), handler)),
+    ).rejects.toBe(
       error,
     );
     expect(write).toHaveBeenCalledWith(
       'warn',
       'http_request_failed',
       'Http',
-      expect.objectContaining({ requestId: 'request-123' }),
+      expect.objectContaining({ requestId: 'request-123', path: '/health' }),
     );
+    expect(JSON.stringify(write.mock.calls[0][3])).not.toContain('secret-value');
   });
 });

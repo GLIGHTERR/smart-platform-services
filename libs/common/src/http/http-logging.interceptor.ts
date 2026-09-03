@@ -19,7 +19,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     const metadata = (): Record<string, unknown> => ({
       requestId: request.requestId,
       method: request.method,
-      path: request.originalUrl,
+      path: request.path,
       statusCode: response.statusCode,
       durationMs: Number((performance.now() - startedAt).toFixed(2)),
     });
