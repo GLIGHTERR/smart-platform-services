@@ -31,6 +31,7 @@ export class DefaultPropertyService extends PropertyQueryService implements Prop
   ) {
     super();
   }
+  public listPublicRooms(): Promise<readonly RoomRecord[]> { return this.repository.listPublicRooms(); }
 
   public async createProperty(ownerId: string, input: CreatePropertyInput): Promise<PropertyRecord> {
     return this.repository.createProperty({

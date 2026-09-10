@@ -131,6 +131,7 @@ export abstract class PropertyEventPublisher {
 }
 
 export abstract class PropertyQueryService {
+  public abstract listPublicRooms(): Promise<readonly RoomRecord[]>;
   public abstract getRoomBookableSnapshot(roomId: string): Promise<RoomBookableSnapshot | null>;
   public abstract getRoomContractSnapshot(roomId: string): Promise<RoomContractSnapshot | null>;
   public abstract getRoomBillingSnapshot(roomId: string): Promise<RoomBillingSnapshot | null>;

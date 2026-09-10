@@ -32,6 +32,9 @@ export class PostgresPropertyRepository extends PropertyRepository {
   public constructor(@InjectDataSource() private readonly dataSource: DataSource) {
     super();
   }
+  public async listPublicRooms(): Promise<readonly RoomRecord[]> {
+    return (await this.roomsQuery("p.status = 'active' AND p.deleted_at IS NULL AND r.status = 'available' AND r.deleted_at IS NULL", [])).map((row) => this.room(row));
+  }
   public async findProperty(id: string): Promise<PropertyRecord | null> {
     const [row] = await this.dataSource.query<PropertyRow[]>(
       'SELECT id, owner_id, name, description, address, status, deleted_at FROM properties WHERE id = $1',

@@ -12,6 +12,7 @@ class Repository extends PropertyRepository {
   properties = new Map<string, PropertyRecord>();
   rooms = new Map<string, RoomRecord>();
   active = new Set<string>();
+  async listPublicRooms() { return [...this.rooms.values()].filter((room) => { const property = this.properties.get(room.propertyId); return Boolean(property && !property.deletedAt && property.status === 'active' && !room.deletedAt && room.status === 'available'); }); }
   async createProperty(x: Omit<PropertyRecord, 'id' | 'deletedAt'>) {
     const property = { ...x, id: `p-${this.properties.size + 1}`, deletedAt: null };
     this.properties.set(property.id, property);
@@ -113,6 +114,14 @@ describe('property policy', () => {
       { type: 'RoomDeleted', roomId: 'r', propertyId: 'p', ownerId: 'owner', status: 'maintenance' },
       { type: 'PropertyDeleted', propertyId: 'p', ownerId: 'owner', status: 'active' },
     ]);
+  });
+  it('returns only active, available, non-deleted rooms publicly', async () => {
+    const { repo, service } = setup();
+    repo.rooms.set('r', { ...room, status: 'available' });
+    repo.rooms.set('hidden', { ...room, id: 'hidden', status: 'maintenance' });
+    await expect(service.listPublicRooms()).resolves.toMatchObject([{ id: 'r' }]);
+    repo.properties.set('p', { ...property, status: 'inactive' });
+    await expect(service.listPublicRooms()).resolves.toEqual([]);
   });
   it('rejects cross-owner access and produces a stable bookability batch', async () => {
     const { repo, service } = setup();

@@ -1,6 +1,7 @@
 import type { PropertyRecord, RoomRecord } from './public/property.contracts';
 
 export abstract class PropertyRepository {
+  public abstract listPublicRooms(): Promise<readonly RoomRecord[]>;
   public abstract createProperty(property: Omit<PropertyRecord, 'id' | 'deletedAt'>): Promise<PropertyRecord>;
   public abstract listPropertiesByOwner(ownerId: string): Promise<readonly PropertyRecord[]>;
   public abstract findProperty(id: string): Promise<PropertyRecord | null>;
