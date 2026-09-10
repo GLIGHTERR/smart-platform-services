@@ -11,6 +11,7 @@ import { NotificationModule } from '@platform/notification';
 import { PaymentModule } from '@platform/payment';
 import { PropertyModule } from '@platform/property';
 import { OwnerSessionController } from './session.controller';
+import { PropertyController } from './property.controller';
 
 @Module({
   imports: [
@@ -27,6 +28,6 @@ import { OwnerSessionController } from './session.controller';
     NotificationModule,
     MediaModule,
   ],
-  controllers: [OwnerSessionController],
+  controllers: [OwnerSessionController, PropertyController],
 })
 export class OwnerApiModule {}
