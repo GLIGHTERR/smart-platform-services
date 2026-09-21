@@ -27,23 +27,32 @@ export abstract class OtpDeliveryPort {
 
 @Injectable()
 export class ConfigurableEmailDeliveryService extends EmailDeliveryPort {
+  private static readonly brevoEndpoint = 'https://api.brevo.com/v3/smtp/email';
+
   public constructor(private readonly config: ConfigService) {
     super();
   }
 
   public assertAvailable(): Promise<void> {
     const mode = this.config.getOrThrow<string>('auth.emailDeliveryMode');
-    if (mode !== 'console' || this.config.get<string>('app.environment') === 'production') {
-      throw new ServiceUnavailableException({
-        code: 'OTP_PROVIDER_UNAVAILABLE',
-        message: 'OTP delivery provider is not configured',
-      });
+    if (mode === 'brevo') {
+      this.config.getOrThrow<string>('auth.brevoApiKey');
+      this.config.getOrThrow<string>('auth.brevoSenderEmail');
+      this.config.getOrThrow<string>('auth.brevoSenderName');
+      return Promise.resolve();
     }
-    return Promise.resolve();
+    if (mode === 'console' && this.config.get<string>('app.environment') !== 'production') {
+      return Promise.resolve();
+    }
+    throw this.unavailable();
   }
 
   public async sendOtp(message: EmailOtpMessage): Promise<void> {
     await this.assertAvailable();
+    if (this.config.getOrThrow<string>('auth.emailDeliveryMode') === 'brevo') {
+      await this.sendWithBrevo(message);
+      return;
+    }
     process.stdout.write(
       `${JSON.stringify({
         level: 'warn',
@@ -55,6 +64,45 @@ export class ConfigurableEmailDeliveryService extends EmailDeliveryPort {
         expiresInSeconds: message.expiresInSeconds,
       })}\n`,
     );
+  }
+
+  private async sendWithBrevo(message: EmailOtpMessage): Promise<void> {
+    try {
+      const response = await fetch(ConfigurableEmailDeliveryService.brevoEndpoint, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'api-key': this.config.getOrThrow<string>('auth.brevoApiKey'),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: {
+            email: this.config.getOrThrow<string>('auth.brevoSenderEmail'),
+            name: this.config.getOrThrow<string>('auth.brevoSenderName'),
+          },
+          to: [{ email: message.email }],
+          subject: 'Mã xác thực đăng ký Smart Platform',
+          textContent: `Mã OTP của bạn là ${message.code}. Mã có hiệu lực trong ${Math.ceil(message.expiresInSeconds / 60)} phút.`,
+          htmlContent: `<p>Mã OTP của bạn là:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px">${message.code}</p><p>Mã có hiệu lực trong ${Math.ceil(message.expiresInSeconds / 60)} phút.</p><p>Nếu bạn không yêu cầu mã này, hãy bỏ qua email.</p>`,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        throw this.unavailable();
+      }
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw this.unavailable();
+    }
+  }
+
+  private unavailable(): ServiceUnavailableException {
+    return new ServiceUnavailableException({
+      code: 'OTP_PROVIDER_UNAVAILABLE',
+      message: 'OTP delivery provider is not configured or temporarily unavailable',
+    });
   }
 }
 
