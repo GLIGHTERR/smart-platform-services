@@ -56,9 +56,7 @@ describe('IdentityModule', () => {
       .useValue({})
       .compile();
 
-    expect(moduleRef.get(ExternalProtectedController)).toBeInstanceOf(
-      ExternalProtectedController,
-    );
+    expect(moduleRef.get(ExternalProtectedController)).toBeInstanceOf(ExternalProtectedController);
 
     await moduleRef.close();
   });

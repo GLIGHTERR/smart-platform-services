@@ -40,6 +40,24 @@ describe('environment configuration', () => {
     ).toThrow(/DATABASE_PORT.*DATABASE_PASSWORD/);
   });
 
+  it('requires Brevo credentials when Brevo delivery is enabled', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        EMAIL_DELIVERY_MODE: 'brevo',
+      }),
+    ).toThrow(/BREVO_API_KEY.*BREVO_SENDER_EMAIL/);
+
+    const result = validateEnvironment({
+      ...validEnvironment,
+      EMAIL_DELIVERY_MODE: 'brevo',
+      BREVO_API_KEY: 'xkeysib-test-key-at-least-twenty-characters',
+      BREVO_SENDER_EMAIL: 'no-reply@example.com',
+    });
+
+    expect(result.BREVO_SENDER_NAME).toBe('Smart Platform');
+  });
+
   it('normalizes CORS origins in the loaded configuration', () => {
     const original = process.env.CORS_ORIGINS;
     process.env.CORS_ORIGINS = ' https://renter.example.com, https://owner.example.com ';

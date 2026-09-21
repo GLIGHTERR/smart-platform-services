@@ -65,6 +65,13 @@ All uncaught HTTP errors use one response envelope:
 The same request ID is returned in `x-request-id` and included in structured JSON request logs.
 Unexpected errors are logged server-side without exposing their internal message to clients.
 
+## Production email OTP
+
+Production email OTP uses Brevo transactional email with `EMAIL_DELIVERY_MODE=brevo`. Configure
+`BREVO_API_KEY`, `BREVO_SENDER_EMAIL` and `BREVO_SENDER_NAME` in the deployment environment; never
+commit provider credentials. Console delivery remains development-only and fails closed in
+production.
+
 ## Quality commands
 
 ```bash

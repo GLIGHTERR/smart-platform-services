@@ -74,7 +74,9 @@ JWT and OTP secrets are required and must contain at least 32 characters. Policy
 - `LOGIN_ABUSE_LIMIT=20`
 - `LOGIN_WINDOW_SECONDS=900`
 - `LOGIN_LOCK_SECONDS=900`
-- `EMAIL_DELIVERY_MODE=disabled|console`
+- `EMAIL_DELIVERY_MODE=disabled|console|brevo`
+- `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` and `BREVO_SENDER_NAME` are required when
+  `EMAIL_DELIVERY_MODE=brevo`. Store the API key only in the deployment secret store.
 - `LEGACY_PHONE_FLOWS_ENABLED=false`
 
 The machine-readable contract is [OpenAPI](openapi.yaml).

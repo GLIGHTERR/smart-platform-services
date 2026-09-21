@@ -33,7 +33,16 @@ const environmentSchema = Joi.object({
   LOGIN_ABUSE_LIMIT: Joi.number().integer().min(1).max(1000).default(20),
   LOGIN_WINDOW_SECONDS: Joi.number().integer().min(60).max(86400).default(900),
   LOGIN_LOCK_SECONDS: Joi.number().integer().min(60).max(86400).default(900),
-  EMAIL_DELIVERY_MODE: Joi.string().valid('disabled', 'console').default('disabled'),
+  EMAIL_DELIVERY_MODE: Joi.string().valid('disabled', 'console', 'brevo').default('disabled'),
+  BREVO_API_KEY: Joi.string()
+    .empty('')
+    .min(20)
+    .when('EMAIL_DELIVERY_MODE', { is: 'brevo', then: Joi.required() }),
+  BREVO_SENDER_EMAIL: Joi.string()
+    .empty('')
+    .email()
+    .when('EMAIL_DELIVERY_MODE', { is: 'brevo', then: Joi.required() }),
+  BREVO_SENDER_NAME: Joi.string().empty('').min(1).max(160).default('Smart Platform'),
   OTP_DELIVERY_MODE: Joi.string().valid('disabled', 'console').default('disabled'),
   LEGACY_PHONE_FLOWS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
 }).unknown(true);
@@ -99,6 +108,9 @@ export function configuration(): Record<string, unknown> {
       loginWindowSeconds: Number(process.env.LOGIN_WINDOW_SECONDS ?? 900),
       loginLockSeconds: Number(process.env.LOGIN_LOCK_SECONDS ?? 900),
       emailDeliveryMode: process.env.EMAIL_DELIVERY_MODE ?? 'disabled',
+      brevoApiKey: process.env.BREVO_API_KEY,
+      brevoSenderEmail: process.env.BREVO_SENDER_EMAIL,
+      brevoSenderName: process.env.BREVO_SENDER_NAME ?? 'Smart Platform',
       otpDeliveryMode: process.env.OTP_DELIVERY_MODE ?? 'disabled',
       legacyPhoneFlowsEnabled: process.env.LEGACY_PHONE_FLOWS_ENABLED === 'true',
     },
