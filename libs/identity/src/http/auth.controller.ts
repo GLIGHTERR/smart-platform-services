@@ -24,12 +24,41 @@ import {
   RefreshTokenDto,
   RegisterDto,
   ResetPasswordDto,
+  SignupCompleteDto,
+  SignupOtpRequestDto,
+  SignupOtpVerifyDto,
   SocialLoginDto,
 } from './auth.dto';
 
 @Controller('auth')
 export class AuthController {
   public constructor(private readonly auth: AuthService) {}
+
+  @Post('signup/otp/request')
+  @HttpCode(HttpStatus.ACCEPTED)
+  public requestSignupOtp(
+    @Body() input: SignupOtpRequestDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['requestSignupOtp']> {
+    return this.auth.requestSignupOtp(input.email, this.context(request));
+  }
+
+  @Post('signup/otp/verify')
+  @HttpCode(HttpStatus.OK)
+  public verifySignupOtp(
+    @Body() input: SignupOtpVerifyDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['verifySignupOtp']> {
+    return this.auth.verifySignupOtp(input, this.context(request));
+  }
+
+  @Post('signup/complete')
+  @HttpCode(HttpStatus.CREATED)
+  public completeSignup(
+    @Body() input: SignupCompleteDto,
+  ): ReturnType<AuthService['completeSignup']> {
+    return this.auth.completeSignup(input);
+  }
 
   @Post('register')
   public register(
@@ -107,6 +136,13 @@ export class AuthController {
     await this.auth.logout(input.refreshToken);
   }
 
+  @Post('logout/all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  public async logoutAll(@CurrentActor() actor: AuthenticatedActor): Promise<void> {
+    await this.auth.logoutAll(actor);
+  }
+
   @Post('oauth/:provider')
   @HttpCode(HttpStatus.OK)
   public socialLogin(
@@ -127,6 +163,7 @@ export class AuthController {
     return {
       ipAddress: request.ip || null,
       userAgent: request.get('user-agent') ?? null,
+      deviceId: request.get('x-device-id') ?? null,
     };
   }
 }

@@ -28,9 +28,12 @@ erDiagram
   USERS ||--o{ MEDIA_FILES : uploads
 ```
 
-OTP challenges are keyed by normalized phone and purpose without a user foreign key so
+Registration OTP challenges are keyed by normalized email and purpose without a user foreign key;
+legacy phone challenges remain nullable compatibility rows. Verification timestamps are persisted,
+while the OTP remains only an HMAC digest and is consumed during account creation. New-user phone values are contact data, while
+`phone_login_enabled` limits the legacy unique phone credential index to migrated phone accounts.
 forgot-password requests can return an enumeration-safe response. `AUTH_THROTTLE_BUCKETS` stores
-keyed HMAC digests of phone/IP keys and bounded windows; neither table stores an OTP code or raw
+keyed HMAC digests of email/IP/device keys and bounded windows; neither table stores an OTP code or raw
 throttle key.
 `AUTH_SESSIONS` stores only refresh-token hashes and a family identifier used to revoke every
 descendant when a rotated token is reused.

@@ -1,90 +1,95 @@
-# Authentication, OTP and role access
+# Email authentication and role access
 
-GLI-11 implements one identity boundary shared by SmartTrọ, SmartChủ and SmartAdmin. Phone numbers
-must use E.164 format. Public registration can grant only `renter` or `owner`; `admin` remains an
-operationally provisioned role.
+GLI-50 aligns the shared identity boundary with SmartTro UC-01 and UC-02. Normalized email
+(`trim` then lowercase) is the unique MVP login identifier. Phone is optional, non-unique contact
+data for new accounts and is never accepted by the production sign-in path.
 
-## HTTP contract
+## Sign-up contract
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/auth/register` | Create a pending phone/password renter or owner and send registration OTP |
-| `POST` | `/auth/login` | Create a session with phone and password |
-| `POST` | `/auth/otp/request` | Send an OTP for pending registration or passwordless login |
-| `POST` | `/auth/otp/verify` | Activate registration or complete passwordless login |
-| `POST` | `/auth/password/forgot` | Start password reset; always returns the same accepted response |
-| `POST` | `/auth/password/reset` | Consume reset OTP, replace password and revoke all old sessions |
-| `POST` | `/auth/password/change` | Verify current password, replace it and return a new sole session |
-| `POST` | `/auth/token/refresh` | Rotate a refresh token and issue a new token pair |
-| `POST` | `/auth/logout` | Revoke the session identified by a refresh token; idempotent |
-| `POST` | `/auth/oauth/:provider` | Google/Facebook/Apple verifier hook |
-| `GET` | `/auth/me` | Read the authenticated actor |
-| `GET` | `/session/me` | Role-specific boundary in each renter, owner and admin API |
+The production flow has three explicit steps and never auto-logs in:
 
-Password and OTP responses never return an OTP. `OTP_DELIVERY_MODE=console` exists only for local
-development; production fails closed unless the application replaces `OtpDeliveryPort` with an SMS
-adapter. Social endpoints similarly fail closed until a provider-specific
-`SocialIdentityVerifier` validates the provider credential.
+1. `POST /auth/signup/otp/request` accepts an email and returns a generic `202` response. The same
+   response shape is used when the email already has an account.
+2. `POST /auth/signup/otp/verify` accepts the email, attempt ID and six-digit code. Its response
+   confirms verification without returning an OTP, password, or token.
+3. `POST /auth/signup/complete` resubmits the in-memory OTP with a valid password, atomically creates
+   an active renter account, and returns `{ "created": true, "next": "sign_in" }`. It returns no JWT.
 
-## Session behavior
+The optional phone on the completion request is stored as contact data. Concurrent completion or
+duplicate-email races create at most one user and return the generic `SIGNUP_UNAVAILABLE` error.
 
-Access tokens use HS256, have a 15-minute default TTL and are accepted only while their persisted
-session and account remain active. Refresh tokens have a 30-day default TTL, are stored only as
-SHA-256 hashes and rotate on every refresh. Reusing a rotated refresh token revokes its entire token
-family. Logout, password change/reset, suspension and disabling therefore invalidate protected
-requests immediately, not merely when an access token expires.
+## Sign-in and sessions
 
-Each application applies `JwtAuthGuard` followed by `RolesGuard`. SmartTrọ accepts `renter`,
-SmartChủ accepts `owner`, and SmartAdmin accepts `admin` on `/session/me`; an authenticated actor
-with a different role receives `403 ROLE_FORBIDDEN`.
+`POST /auth/login` accepts email and password only. Unknown email and wrong password both return
+`INVALID_CREDENTIALS`. A correct password for a pending account returns `ACCOUNT_UNVERIFIED`; other
+non-active states return `ACCOUNT_INACTIVE`. Happy-path sign-in never requires OTP.
 
-GLI-11 defines role checks only. `IdentityAccessService.assertPermission` remains fail-closed until
-a later requirement defines a granular permission catalog; it never derives an unstated permission
-from a role name.
+Access tokens default to 15 minutes and refresh tokens to 30 days. Refresh tokens are persisted only
+as SHA-256 hashes and rotate on every refresh. Reusing a rotated token revokes the token family.
+`POST /auth/logout` revokes the current refresh-token session, while authenticated
+`POST /auth/logout/all` revokes all sessions for the actor.
 
-## Conservative MVP abuse controls
+## OTP and abuse controls
 
-These values are explicit GLI-11 assumptions because no product-specific thresholds were supplied:
+| Rule                            |                            Default |
+| ------------------------------- | ---------------------------------: |
+| OTP digits                      |                                  6 |
+| OTP lifetime                    |                         10 minutes |
+| Wrong codes per challenge       |                                  5 |
+| Resend cooldown                 |                         60 seconds |
+| Requests per email              |                             5/hour |
+| Requests per IP                 |                            20/hour |
+| Requests per device             |                            20/hour |
+| Password failures per email     |  5/15 minutes, then 15-minute lock |
+| Password failures per IP/device | 20/15 minutes, then 15-minute lock |
 
-| Operation | Key | Limit and lock |
-| --- | --- | --- |
-| Password login | normalized phone | 5 failures per 15 minutes, then 15-minute lock |
-| Password login | source IP | 20 failures per 15 minutes, then 15-minute lock |
-| OTP request | normalized phone | 3 requests per 15 minutes, then 15-minute lock |
-| OTP request | source IP | 20 requests per hour, then 1-hour lock |
-| OTP verification | normalized phone/source IP | 10 failures per 15 minutes, then 15-minute lock |
-| One OTP challenge | challenge | 5 wrong codes maximum |
+OTP codes, passwords, access tokens and refresh tokens are never returned by the OTP request endpoint
+or written to production application logs. OTPs are stored only as HMAC-SHA256 digests.
+`X-Device-Id` is the preferred device abuse-control key; when
+it is absent the service derives a bounded fallback from IP and user agent.
 
-OTP codes are six digits, expire after five minutes, are single-use, and are stored only as an
-HMAC-SHA256 digest. Forgot-password responses are neutral for known and unknown phones.
+## Delivery adapters
 
-## Identity-linking and irreversible state assumptions
+`EmailDeliveryPort` isolates the email provider. `EMAIL_DELIVERY_MODE=console` is allowed only for
+local development. Production and disabled mode fail closed with `OTP_PROVIDER_UNAVAILABLE` until a
+real provider adapter is configured.
 
-- A verified social provider subject may log in only through its existing provider link.
-- A first social login may create a renter or owner only when the verifier supplies a verified
-  email. It never auto-links to an existing account with the same email; that returns
-  `EXPLICIT_IDENTITY_LINK_REQUIRED` for a future authenticated linking flow.
-- Registration activation and password reset consume the OTP before changing account state. If a
-  later infrastructure write fails, the user must request a new OTP; a consumed code is never made
-  reusable.
-- No endpoint grants `admin`, merges two identities, deletes an account, or silently changes roles.
+The GLI-11 phone registration, passwordless OTP login and phone recovery routes remain available
+only for compatibility and are disabled by default with `LEGACY_PHONE_FLOWS_ENABLED=false`. They are
+outside UC-01/UC-02 and must not be enabled in production pending UC-03 and a supported provider.
 
 ## Configuration
 
-`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` and `OTP_HASH_SECRET` are required and must each contain at
-least 32 characters. Secrets must be unique per environment and managed outside source control.
-TTL settings are `JWT_ACCESS_TTL_SECONDS`, `JWT_REFRESH_TTL_SECONDS` and `OTP_TTL_SECONDS`.
+JWT and OTP secrets are required and must contain at least 32 characters. Policy settings are:
+
+- `JWT_ACCESS_TTL_SECONDS=900`
+- `JWT_REFRESH_TTL_SECONDS=2592000`
+- `OTP_TTL_SECONDS=600`
+- `OTP_MAX_ATTEMPTS=5`
+- `OTP_RESEND_COOLDOWN_SECONDS=60`
+- `OTP_REQUEST_LIMIT_PER_HOUR=5`
+- `OTP_IP_LIMIT_PER_HOUR=20`
+- `OTP_DEVICE_LIMIT_PER_HOUR=20`
+- `LOGIN_FAILURE_LIMIT=5`
+- `LOGIN_ABUSE_LIMIT=20`
+- `LOGIN_WINDOW_SECONDS=900`
+- `LOGIN_LOCK_SECONDS=900`
+- `EMAIL_DELIVERY_MODE=disabled|console`
+- `LEGACY_PHONE_FLOWS_ENABLED=false`
+
+The machine-readable contract is [OpenAPI](openapi.yaml).
 
 ## Acceptance-criteria test map
 
-| Acceptance criterion | Automated coverage |
-| --- | --- |
-| Phone register/login and OTP verification | `auth.service.spec.ts` registration and passwordless-login cases |
-| Forgot/change password | `auth.service.spec.ts` reset and change cases |
-| JWT refresh/logout behavior | refresh rotation, reuse and immediate logout case |
-| Protected access and wrong-role rejection | `auth-guards.spec.ts` |
-| OTP failure paths | five-failure lock and single-use cases |
-| Lockout/rate limits | five failed password attempts case plus persisted throttle policy |
-| Public identity access contracts | `identity-query.service.spec.ts` |
-
-`npm run test:cov` enforces the repository thresholds and includes identity services and guards.
+| Requirement                                          | Automated coverage                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------- |
+| Email normalization and password validation          | `auth.dto.spec.ts`                                                  |
+| Request, verify, complete, no auto-login             | `auth.service.spec.ts` full signup case                             |
+| Generic existing-account and credential responses    | generic request/login cases                                         |
+| 10-minute expiry, five wrong codes, 60-second resend | OTP boundary cases                                                  |
+| Email/IP/device request throttles                    | request limit and rate-limiter tests                                |
+| Five login failures and 15-minute lock               | login lockout case                                                  |
+| Completion concurrency and token single use          | completion race case                                                |
+| Access/refresh rotation and logout current/all       | session lifecycle case                                              |
+| Provider fail-closed behavior                        | `otp-delivery.port.spec.ts`                                         |
+| Additive migration contract                          | `1700000002000-email-identity-auth.spec.ts` plus DB migration smoke |

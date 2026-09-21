@@ -5,7 +5,7 @@ export interface IdentityUser {
   email: string | null;
   phone: string | null;
   passwordHash: string | null;
-  displayName: string;
+  displayName: string | null;
   status: ActorStatus;
   roles: readonly ActorRole[];
 }
@@ -15,6 +15,15 @@ export interface NewPhoneUser {
   passwordHash: string;
   displayName: string;
   role: Exclude<ActorRole, 'admin'>;
+}
+
+export interface CompleteEmailSignup {
+  challengeId: string;
+  email: string;
+  phone: string | null;
+  passwordHash: string;
+  codeHash: string;
+  completedAt: Date;
 }
 
 export interface NewSocialUser {
@@ -29,13 +38,16 @@ export type OtpPurpose = 'registration' | 'login' | 'password_reset';
 
 export interface OtpChallengeRecord {
   id: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   purpose: OtpPurpose;
   codeHash: string;
   attemptCount: number;
   maxAttempts: number;
   expiresAt: Date;
   consumedAt: Date | null;
+  createdAt: Date;
+  verifiedAt: Date | null;
 }
 
 export interface NewSession {
@@ -71,6 +83,7 @@ export abstract class IdentityRepository {
     providerSubject: string,
   ): Promise<IdentityUser | null>;
   public abstract createPhoneUser(input: NewPhoneUser): Promise<IdentityUser>;
+  public abstract completeEmailSignup(input: CompleteEmailSignup): Promise<IdentityUser | null>;
   public abstract createSocialUser(input: NewSocialUser): Promise<IdentityUser>;
   public abstract activatePhone(userId: string, verifiedAt: Date): Promise<void>;
   public abstract updatePassword(userId: string, passwordHash: string): Promise<void>;
@@ -78,7 +91,8 @@ export abstract class IdentityRepository {
 
   public abstract replaceOtpChallenge(input: {
     id: string;
-    phone: string;
+    email: string | null;
+    phone: string | null;
     purpose: OtpPurpose;
     codeHash: string;
     maxAttempts: number;
@@ -86,10 +100,11 @@ export abstract class IdentityRepository {
     requestedIp: string | null;
   }): Promise<void>;
   public abstract findOtpChallenge(
-    phone: string,
+    recipient: { email: string } | { phone: string },
     purpose: OtpPurpose,
   ): Promise<OtpChallengeRecord | null>;
   public abstract recordOtpFailure(challengeId: string): Promise<void>;
+  public abstract markOtpVerified(challengeId: string, verifiedAt: Date): Promise<boolean>;
   public abstract consumeOtp(challengeId: string, consumedAt: Date): Promise<boolean>;
   public abstract cancelOtp(challengeId: string, consumedAt: Date): Promise<void>;
 

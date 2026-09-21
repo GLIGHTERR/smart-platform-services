@@ -1,9 +1,11 @@
 import { Transform } from 'class-transformer';
 import {
   IsIn,
+  IsEmail,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -16,6 +18,56 @@ const OTP_CODE = /^\d{6}$/;
 
 function trimmed(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
+}
+
+function normalizedEmail(value: unknown): unknown {
+  return typeof value === 'string' ? value.trim().toLowerCase() : value;
+}
+
+class EmailDto {
+  @Transform(({ value }): unknown => normalizedEmail(value))
+  @IsEmail()
+  @MaxLength(320)
+  public email!: string;
+}
+
+class PasswordDto {
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(/[a-z]/, { message: 'password must contain a lowercase letter' })
+  @Matches(/[A-Z]/, { message: 'password must contain an uppercase letter' })
+  @Matches(/\d/, { message: 'password must contain a number' })
+  @Matches(/[^A-Za-z0-9]/, { message: 'password must contain a special character' })
+  public password!: string;
+}
+
+export class SignupOtpRequestDto extends EmailDto {}
+
+export class SignupOtpVerifyDto extends EmailDto {
+  @IsUUID()
+  public attemptId!: string;
+
+  @Matches(OTP_CODE)
+  public code!: string;
+}
+
+export class SignupCompleteDto extends PasswordDto {
+  @Transform(({ value }): unknown => normalizedEmail(value))
+  @IsEmail()
+  @MaxLength(320)
+  public email!: string;
+
+  @IsUUID()
+  public attemptId!: string;
+
+  @Matches(OTP_CODE)
+  public code!: string;
+
+  @IsOptional()
+  @Transform(({ value }): unknown => trimmed(value))
+  @Matches(E164_PHONE, { message: 'phone must use E.164 format, for example +84901234567' })
+  public phone?: string;
 }
 
 export class RegisterDto {
@@ -42,9 +94,10 @@ export class RegisterDto {
 }
 
 export class LoginDto {
-  @Transform(({ value }): unknown => trimmed(value))
-  @Matches(E164_PHONE)
-  public phone!: string;
+  @Transform(({ value }): unknown => normalizedEmail(value))
+  @IsEmail()
+  @MaxLength(320)
+  public email!: string;
 
   @IsString()
   @IsNotEmpty()

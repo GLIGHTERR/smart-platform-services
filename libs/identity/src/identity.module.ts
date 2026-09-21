@@ -2,7 +2,12 @@ import { Module } from '@nestjs/common';
 import { AuthController } from './http/auth.controller';
 import { IdentityRepository } from './persistence/identity.repository';
 import { PostgresIdentityRepository } from './persistence/postgres-identity.repository';
-import { ConfigurableOtpDeliveryService, OtpDeliveryPort } from './providers/otp-delivery.port';
+import {
+  ConfigurableEmailDeliveryService,
+  ConfigurableOtpDeliveryService,
+  EmailDeliveryPort,
+  OtpDeliveryPort,
+} from './providers/otp-delivery.port';
 import {
   SocialIdentityVerifier,
   UnconfiguredSocialIdentityVerifier,
@@ -23,6 +28,7 @@ import {
   controllers: [AuthController],
   providers: [
     { provide: IdentityRepository, useClass: PostgresIdentityRepository },
+    { provide: EmailDeliveryPort, useClass: ConfigurableEmailDeliveryService },
     { provide: OtpDeliveryPort, useClass: ConfigurableOtpDeliveryService },
     { provide: SocialIdentityVerifier, useClass: UnconfiguredSocialIdentityVerifier },
     { provide: IdentityQueryService, useClass: DefaultIdentityQueryService },
