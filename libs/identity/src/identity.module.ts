@@ -40,6 +40,12 @@ import {
     RolesGuard,
     AuthService,
   ],
-  exports: [IdentityQueryService, IdentityAccessService, JwtAuthGuard, RolesGuard],
+  exports: [
+    IdentityQueryService,
+    IdentityAccessService,
+    JwtSessionService,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
 })
 export class IdentityModule {}
