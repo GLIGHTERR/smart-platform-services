@@ -148,17 +148,40 @@ export abstract class PropertyPolicyService {
 }
 
 export abstract class PropertyOwnerService {
-  public abstract createProperty(ownerId: string, input: CreatePropertyInput): Promise<PropertyRecord>;
+  public abstract createProperty(
+    ownerId: string,
+    input: CreatePropertyInput,
+  ): Promise<PropertyRecord>;
   public abstract listProperties(ownerId: string): Promise<readonly PropertyRecord[]>;
   public abstract getProperty(ownerId: string, propertyId: string): Promise<PropertyRecord>;
-  public abstract updateProperty(ownerId: string, propertyId: string, input: UpdatePropertyInput): Promise<PropertyRecord>;
+  public abstract updateProperty(
+    ownerId: string,
+    propertyId: string,
+    input: UpdatePropertyInput,
+  ): Promise<PropertyRecord>;
   public abstract deleteProperty(ownerId: string, propertyId: string): Promise<void>;
-  public abstract createRoom(ownerId: string, propertyId: string, input: CreateRoomInput): Promise<RoomRecord>;
+  public abstract createRoom(
+    ownerId: string,
+    propertyId: string,
+    input: CreateRoomInput,
+  ): Promise<RoomRecord>;
   public abstract listRooms(ownerId: string, propertyId: string): Promise<readonly RoomRecord[]>;
   public abstract getRoom(ownerId: string, roomId: string): Promise<RoomRecord>;
-  public abstract updateRoom(ownerId: string, roomId: string, input: UpdateRoomInput): Promise<RoomRecord>;
-  public abstract setPropertyStatus(ownerId: string, propertyId: string, status: OwnerPropertyStatus): Promise<PropertyRecord>;
-  public abstract setRoomStatus(ownerId: string, roomId: string, status: OwnerRoomStatus): Promise<RoomRecord>;
+  public abstract updateRoom(
+    ownerId: string,
+    roomId: string,
+    input: UpdateRoomInput,
+  ): Promise<RoomRecord>;
+  public abstract setPropertyStatus(
+    ownerId: string,
+    propertyId: string,
+    status: OwnerPropertyStatus,
+  ): Promise<PropertyRecord>;
+  public abstract setRoomStatus(
+    ownerId: string,
+    roomId: string,
+    status: OwnerRoomStatus,
+  ): Promise<RoomRecord>;
   public abstract deleteRoom(ownerId: string, roomId: string): Promise<void>;
 }
 

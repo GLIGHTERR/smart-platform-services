@@ -31,9 +31,14 @@ export class DefaultPropertyService extends PropertyQueryService implements Prop
   ) {
     super();
   }
-  public listPublicRooms(): Promise<readonly RoomRecord[]> { return this.repository.listPublicRooms(); }
+  public listPublicRooms(): Promise<readonly RoomRecord[]> {
+    return this.repository.listPublicRooms();
+  }
 
-  public async createProperty(ownerId: string, input: CreatePropertyInput): Promise<PropertyRecord> {
+  public async createProperty(
+    ownerId: string,
+    input: CreatePropertyInput,
+  ): Promise<PropertyRecord> {
     return this.repository.createProperty({
       ownerId,
       name: input.name,
@@ -82,7 +87,11 @@ export class DefaultPropertyService extends PropertyQueryService implements Prop
     await this.assertOwnerOwnsRoom(ownerId, roomId);
     return room;
   }
-  public async updateRoom(ownerId: string, roomId: string, input: UpdateRoomInput): Promise<RoomRecord> {
+  public async updateRoom(
+    ownerId: string,
+    roomId: string,
+    input: UpdateRoomInput,
+  ): Promise<RoomRecord> {
     const room = await this.getRoom(ownerId, roomId);
     return this.repository.saveRoom({ ...room, ...input });
   }
@@ -219,7 +228,12 @@ export class DefaultPropertyService extends PropertyQueryService implements Prop
   public async deleteProperty(ownerId: string, propertyId: string): Promise<void> {
     const property = await this.ownedProperty(ownerId, propertyId);
     await this.repository.saveProperty({ ...property, deletedAt: new Date() });
-    await this.events.publish({ type: 'PropertyDeleted', propertyId, ownerId, status: property.status });
+    await this.events.publish({
+      type: 'PropertyDeleted',
+      propertyId,
+      ownerId,
+      status: property.status,
+    });
   }
   public async deleteRoom(ownerId: string, roomId: string): Promise<void> {
     const room = await this.requireRoom(roomId);

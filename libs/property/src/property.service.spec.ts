@@ -12,7 +12,18 @@ class Repository extends PropertyRepository {
   properties = new Map<string, PropertyRecord>();
   rooms = new Map<string, RoomRecord>();
   active = new Set<string>();
-  async listPublicRooms() { return [...this.rooms.values()].filter((room) => { const property = this.properties.get(room.propertyId); return Boolean(property && !property.deletedAt && property.status === 'active' && !room.deletedAt && room.status === 'available'); }); }
+  async listPublicRooms() {
+    return [...this.rooms.values()].filter((room) => {
+      const property = this.properties.get(room.propertyId);
+      return Boolean(
+        property &&
+        !property.deletedAt &&
+        property.status === 'active' &&
+        !room.deletedAt &&
+        room.status === 'available',
+      );
+    });
+  }
   async createProperty(x: Omit<PropertyRecord, 'id' | 'deletedAt'>) {
     const property = { ...x, id: `p-${this.properties.size + 1}`, deletedAt: null };
     this.properties.set(property.id, property);
@@ -28,7 +39,12 @@ class Repository extends PropertyRepository {
     return this.rooms.get(id) ?? null;
   }
   async createRoom(x: Omit<RoomRecord, 'id' | 'ownerId' | 'deletedAt'>) {
-    const room = { ...x, id: `r-${this.rooms.size + 1}`, ownerId: this.properties.get(x.propertyId)!.ownerId, deletedAt: null };
+    const room = {
+      ...x,
+      id: `r-${this.rooms.size + 1}`,
+      ownerId: this.properties.get(x.propertyId)!.ownerId,
+      deletedAt: null,
+    };
     this.rooms.set(room.id, room);
     return room;
   }
@@ -103,7 +119,14 @@ describe('property policy', () => {
       status: 'available',
     });
     expect(events.events).toEqual([
-      { type: 'RoomStatusChanged', roomId: 'r', propertyId: 'p', ownerId: 'owner', oldStatus: 'maintenance', newStatus: 'available' },
+      {
+        type: 'RoomStatusChanged',
+        roomId: 'r',
+        propertyId: 'p',
+        ownerId: 'owner',
+        oldStatus: 'maintenance',
+        newStatus: 'available',
+      },
     ]);
   });
   it('emits deletion snapshots without exposing repositories to event consumers', async () => {
@@ -111,7 +134,13 @@ describe('property policy', () => {
     await service.deleteRoom('owner', 'r');
     await service.deleteProperty('owner', 'p');
     expect(events.events).toEqual([
-      { type: 'RoomDeleted', roomId: 'r', propertyId: 'p', ownerId: 'owner', status: 'maintenance' },
+      {
+        type: 'RoomDeleted',
+        roomId: 'r',
+        propertyId: 'p',
+        ownerId: 'owner',
+        status: 'maintenance',
+      },
       { type: 'PropertyDeleted', propertyId: 'p', ownerId: 'owner', status: 'active' },
     ]);
   });
@@ -143,12 +172,23 @@ describe('property policy', () => {
   });
   it('creates, reads, updates and hides owner-owned resources', async () => {
     const { service } = setup();
-    const created = await service.createProperty('owner', { name: 'New', address: { city: 'HCM' } });
+    const created = await service.createProperty('owner', {
+      name: 'New',
+      address: { city: 'HCM' },
+    });
     await expect(service.getProperty('other', created.id)).rejects.toBeTruthy();
-    await expect(service.updateProperty('owner', created.id, { name: 'Renamed' })).resolves.toMatchObject({ name: 'Renamed' });
-    const createdRoom = await service.createRoom('owner', created.id, { code: '01', name: 'Room', monthlyRent: '100' });
+    await expect(
+      service.updateProperty('owner', created.id, { name: 'Renamed' }),
+    ).resolves.toMatchObject({ name: 'Renamed' });
+    const createdRoom = await service.createRoom('owner', created.id, {
+      code: '01',
+      name: 'Room',
+      monthlyRent: '100',
+    });
     await expect(service.getRoom('other', createdRoom.id)).rejects.toBeTruthy();
-    await expect(service.updateRoom('owner', createdRoom.id, { name: 'Updated' })).resolves.toMatchObject({ name: 'Updated' });
+    await expect(
+      service.updateRoom('owner', createdRoom.id, { name: 'Updated' }),
+    ).resolves.toMatchObject({ name: 'Updated' });
     await service.deleteRoom('owner', createdRoom.id);
     await expect(service.listRooms('owner', created.id)).resolves.toEqual([]);
   });
