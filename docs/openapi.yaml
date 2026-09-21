@@ -1,0 +1,226 @@
+openapi: 3.1.0
+info:
+  title: Smart Platform Authentication API
+  version: 0.2.0
+  description: Email identity contract for SmartTro UC-01 and UC-02.
+paths:
+  /auth/signup/otp/request:
+    post:
+      summary: Request a registration OTP by email
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailInput'
+      responses:
+        '202':
+          description: Generic response for both registered and unregistered emails
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpAccepted'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Email provider is unavailable; production fails closed
+  /auth/signup/otp/verify:
+    post:
+      summary: Verify the six-digit registration OTP
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, attemptId, code]
+              properties:
+                email:
+                  type: string
+                  format: email
+                attemptId:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+      responses:
+        '200':
+          description: OTP verified; no OTP, password, or token is returned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verified, attemptId, expiresInSeconds]
+                properties:
+                  verified:
+                    const: true
+                  attemptId:
+                    type: string
+                    format: uuid
+                  expiresInSeconds:
+                    type: integer
+                    minimum: 1
+        '401':
+          description: Generic invalid, expired, exhausted, or already-used OTP
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/signup/complete:
+    post:
+      summary: Create the verified renter account and return to Sign In
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, attemptId, code, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                attemptId:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+                  description: Must include lowercase, uppercase, number, and special character.
+                phone:
+                  type: string
+                  pattern: '^\+[1-9]\d{7,14}$'
+                  description: Optional contact data; not a login identifier.
+      responses:
+        '201':
+          description: Account created; no access or refresh token is issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created, next]
+                properties:
+                  created:
+                    const: true
+                  next:
+                    const: sign_in
+        '400':
+          description: Generic invalid, expired, consumed, duplicate, or raced signup attempt
+  /auth/login:
+    post:
+      summary: Sign in with normalized email and password
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  maxLength: 128
+      responses:
+        '200':
+          description: Access token (15 minutes) and rotating refresh token (30 days)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionTokens'
+        '401':
+          description: Generic INVALID_CREDENTIALS response
+        '403':
+          description: ACCOUNT_UNVERIFIED or ACCOUNT_INACTIVE after valid credentials
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/token/refresh:
+    post:
+      summary: Rotate a refresh token
+      responses:
+        '200':
+          description: Replacement token pair
+  /auth/logout:
+    post:
+      summary: Revoke the session represented by a refresh token
+      responses:
+        '204':
+          description: Session revoked; repeated calls are safe
+  /auth/logout/all:
+    post:
+      summary: Revoke every active session for the authenticated account
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: All sessions revoked
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    DeviceId:
+      name: X-Device-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 255
+      description: Stable client-generated identifier used only as an abuse-control key.
+  schemas:
+    EmailInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+    OtpAccepted:
+      type: object
+      required: [accepted, attemptId, expiresInSeconds, resendAfterSeconds]
+      properties:
+        accepted:
+          const: true
+        attemptId:
+          type: string
+          format: uuid
+        expiresInSeconds:
+          type: integer
+          example: 600
+        resendAfterSeconds:
+          type: integer
+          example: 60
+    SessionTokens:
+      type: object
+      required:
+        [accessToken, refreshToken, tokenType, accessExpiresInSeconds, refreshExpiresInSeconds]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        tokenType:
+          const: Bearer
+        accessExpiresInSeconds:
+          type: integer
+          example: 900
+        refreshExpiresInSeconds:
+          type: integer
+          example: 2592000
+  responses:
+    RateLimited:
+      description: AUTH_RATE_LIMITED with retryAfterSeconds

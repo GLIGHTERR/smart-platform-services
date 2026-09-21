@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ActorRole, SocialProvider } from '../../libs/identity/src/public/identity.contracts';
 import {
   IdentityRepository,
+  type CompleteEmailSignup,
   type IdentityUser,
   type NewPhoneUser,
   type NewSession,
@@ -61,6 +62,34 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     return user;
   }
 
+  public async completeEmailSignup(input: CompleteEmailSignup): Promise<IdentityUser | null> {
+    const challenge = this.otpChallenges.get(input.challengeId);
+    if (
+      !challenge ||
+      challenge.email !== input.email ||
+      challenge.purpose !== 'registration' ||
+      challenge.consumedAt ||
+      challenge.expiresAt <= input.completedAt ||
+      challenge.codeHash !== input.codeHash ||
+      !challenge.verifiedAt ||
+      (await this.findByEmail(input.email))
+    ) {
+      return null;
+    }
+    const user: IdentityUser = {
+      id: randomUUID(),
+      email: input.email,
+      phone: input.phone,
+      passwordHash: input.passwordHash,
+      displayName: null,
+      status: 'active',
+      roles: ['renter'],
+    };
+    this.users.set(user.id, user);
+    this.otpChallenges.set(challenge.id, { ...challenge, consumedAt: input.completedAt });
+    return user;
+  }
+
   public async createSocialUser(input: NewSocialUser): Promise<IdentityUser> {
     const user: IdentityUser = {
       id: randomUUID(),
@@ -94,7 +123,8 @@ export class InMemoryIdentityRepository extends IdentityRepository {
 
   public async replaceOtpChallenge(input: {
     id: string;
-    phone: string;
+    email: string | null;
+    phone: string | null;
     purpose: OtpPurpose;
     codeHash: string;
     maxAttempts: number;
@@ -102,6 +132,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   }): Promise<void> {
     for (const [key, challenge] of this.otpChallenges) {
       if (
+        challenge.email === input.email &&
         challenge.phone === input.phone &&
         challenge.purpose === input.purpose &&
         !challenge.consumedAt
@@ -111,6 +142,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     }
     this.otpChallenges.set(input.id, {
       id: input.id,
+      email: input.email,
       phone: input.phone,
       purpose: input.purpose,
       codeHash: input.codeHash,
@@ -118,11 +150,13 @@ export class InMemoryIdentityRepository extends IdentityRepository {
       maxAttempts: input.maxAttempts,
       expiresAt: input.expiresAt,
       consumedAt: null,
+      createdAt: new Date(),
+      verifiedAt: null,
     });
   }
 
   public async findOtpChallenge(
-    phone: string,
+    recipient: { email: string } | { phone: string },
     purpose: OtpPurpose,
   ): Promise<OtpChallengeRecord | null> {
     return (
@@ -130,7 +164,11 @@ export class InMemoryIdentityRepository extends IdentityRepository {
         .reverse()
         .find(
           (challenge) =>
-            challenge.phone === phone && challenge.purpose === purpose && !challenge.consumedAt,
+            ('email' in recipient
+              ? challenge.email === recipient.email
+              : challenge.phone === recipient.phone) &&
+            challenge.purpose === purpose &&
+            !challenge.consumedAt,
         ) ?? null
     );
   }
@@ -143,6 +181,24 @@ export class InMemoryIdentityRepository extends IdentityRepository {
         attemptCount: challenge.attemptCount + 1,
       });
     }
+  }
+
+  public async markOtpVerified(challengeId: string, verifiedAt: Date): Promise<boolean> {
+    const challenge = this.otpChallenges.get(challengeId);
+    if (
+      !challenge ||
+      challenge.consumedAt ||
+      challenge.verifiedAt ||
+      challenge.expiresAt <= verifiedAt ||
+      challenge.attemptCount >= challenge.maxAttempts
+    ) {
+      return false;
+    }
+    this.otpChallenges.set(challengeId, {
+      ...challenge,
+      verifiedAt,
+    });
+    return true;
   }
 
   public async consumeOtp(challengeId: string, consumedAt: Date): Promise<boolean> {
@@ -258,14 +314,15 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   }
 
   public addActiveUser(input: {
-    phone: string;
+    phone?: string;
+    email?: string;
     passwordHash: string;
     roles?: readonly ActorRole[];
   }): IdentityUser {
     const user: IdentityUser = {
       id: randomUUID(),
-      email: null,
-      phone: input.phone,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
       passwordHash: input.passwordHash,
       displayName: 'Existing User',
       status: 'active',

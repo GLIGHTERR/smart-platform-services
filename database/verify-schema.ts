@@ -12,6 +12,10 @@ interface CountRow {
   count: string;
 }
 
+interface ColumnRow {
+  column_name: string;
+}
+
 const REQUIRED_TABLES = [
   'roles',
   'users',
@@ -67,8 +71,21 @@ async function verifySchema(): Promise<void> {
       throw new Error('Schema verification failed; append-only audit trigger is missing');
     }
 
+    const emailAuthColumns = await dataSource.query<ColumnRow[]>(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND (
+          (table_name = 'users' AND column_name = 'phone_login_enabled')
+          OR (table_name = 'otp_challenges' AND column_name IN ('email', 'verified_at'))
+        )
+    `);
+    if (emailAuthColumns.length !== 3) {
+      throw new Error('Schema verification failed; email identity columns are missing');
+    }
+
     process.stdout.write(
-      `Schema verified: ${REQUIRED_TABLES.length} required tables, 3 base roles and append-only audit.\n`,
+      `Schema verified: ${REQUIRED_TABLES.length} required tables, email identity columns, 3 base roles and append-only audit.\n`,
     );
   } finally {
     await dataSource.destroy();

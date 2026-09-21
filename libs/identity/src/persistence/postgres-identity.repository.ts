@@ -4,6 +4,7 @@ import { DataSource, type EntityManager } from 'typeorm';
 import type { ActorRole, ActorStatus, SocialProvider } from '../public/identity.contracts';
 import {
   IdentityRepository,
+  type CompleteEmailSignup,
   type IdentityUser,
   type NewPhoneUser,
   type NewSession,
@@ -20,20 +21,23 @@ interface UserRow {
   email: string | null;
   phone: string | null;
   password_hash: string | null;
-  display_name: string;
+  display_name: string | null;
   status: ActorStatus;
   roles: ActorRole[];
 }
 
 interface OtpRow {
   id: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   purpose: OtpPurpose;
   code_hash: string;
   attempt_count: number;
   max_attempts: number;
   expires_at: Date;
   consumed_at: Date | null;
+  created_at: Date;
+  verified_at: Date | null;
 }
 
 interface SessionRow {
@@ -57,7 +61,7 @@ export class PostgresIdentityRepository extends IdentityRepository {
   }
 
   public findByPhone(phone: string): Promise<IdentityUser | null> {
-    return this.findOne('u.phone = $1', [phone]);
+    return this.findOne('u.phone = $1 AND u.phone_login_enabled', [phone]);
   }
 
   public findByEmail(email: string): Promise<IdentityUser | null> {
@@ -86,8 +90,8 @@ export class PostgresIdentityRepository extends IdentityRepository {
       const userId = await this.dataSource.transaction(async (manager) => {
         const [user] = await manager.query<Array<{ id: string }>>(
           `
-            INSERT INTO users (phone, password_hash, display_name, status)
-            VALUES ($1, $2, $3, 'pending')
+            INSERT INTO users (phone, password_hash, display_name, status, phone_login_enabled)
+            VALUES ($1, $2, $3, 'pending', true)
             RETURNING id
           `,
           [input.phone, input.passwordHash, input.displayName],
@@ -108,6 +112,65 @@ export class PostgresIdentityRepository extends IdentityRepository {
         throw new ConflictException({
           code: 'PHONE_ALREADY_REGISTERED',
           message: 'Phone is registered',
+        });
+      }
+      throw error;
+    }
+  }
+
+  public async completeEmailSignup(input: CompleteEmailSignup): Promise<IdentityUser | null> {
+    try {
+      const userId = await this.dataSource.transaction(async (manager) => {
+        const challenges = await manager.query<Array<{ id: string }>>(
+          `
+            SELECT id
+            FROM otp_challenges
+            WHERE id = $1
+              AND email = $2
+              AND purpose = 'registration'
+              AND code_hash = $3
+              AND verified_at IS NOT NULL
+              AND consumed_at IS NULL
+              AND expires_at > $4
+            FOR UPDATE
+          `,
+          [input.challengeId, input.email, input.codeHash, input.completedAt],
+        );
+        if (!challenges[0]) {
+          return null;
+        }
+        const [user] = await manager.query<Array<{ id: string }>>(
+          `
+            INSERT INTO users
+              (email, phone, password_hash, display_name, status, email_verified_at)
+            VALUES ($1, $2, $3, NULL, 'active', $4)
+            RETURNING id
+          `,
+          [input.email, input.phone, input.passwordHash, input.completedAt],
+        );
+        if (!user) {
+          throw new Error('User insert returned no row');
+        }
+        await this.grantRoleAndCreateProfile(manager, user.id, 'renter');
+        await manager.query(`UPDATE otp_challenges SET consumed_at = $2 WHERE id = $1`, [
+          input.challengeId,
+          input.completedAt,
+        ]);
+        return user.id;
+      });
+      if (!userId) {
+        return null;
+      }
+      const user = await this.findById(userId);
+      if (!user) {
+        throw new Error('Created email user could not be loaded');
+      }
+      return user;
+    } catch (error: unknown) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException({
+          code: 'SIGNUP_UNAVAILABLE',
+          message: 'Unable to complete sign up',
         });
       }
       throw error;
@@ -174,7 +237,8 @@ export class PostgresIdentityRepository extends IdentityRepository {
 
   public async replaceOtpChallenge(input: {
     id: string;
-    phone: string;
+    email: string | null;
+    phone: string | null;
     purpose: OtpPurpose;
     codeHash: string;
     maxAttempts: number;
@@ -186,18 +250,20 @@ export class PostgresIdentityRepository extends IdentityRepository {
         `
           UPDATE otp_challenges
           SET consumed_at = now()
-          WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL
+          WHERE (($1::varchar IS NOT NULL AND email = $1) OR ($2::varchar IS NOT NULL AND phone = $2))
+            AND purpose = $3 AND consumed_at IS NULL
         `,
-        [input.phone, input.purpose],
+        [input.email, input.phone, input.purpose],
       );
       await manager.query(
         `
           INSERT INTO otp_challenges
-            (id, phone, purpose, code_hash, max_attempts, expires_at, requested_ip)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (id, email, phone, purpose, code_hash, max_attempts, expires_at, requested_ip)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
         [
           input.id,
+          input.email,
           input.phone,
           input.purpose,
           input.codeHash,
@@ -210,18 +276,21 @@ export class PostgresIdentityRepository extends IdentityRepository {
   }
 
   public async findOtpChallenge(
-    phone: string,
+    recipient: { email: string } | { phone: string },
     purpose: OtpPurpose,
   ): Promise<OtpChallengeRecord | null> {
+    const column = 'email' in recipient ? 'email' : 'phone';
+    const value = 'email' in recipient ? recipient.email : recipient.phone;
     const [row] = await this.dataSource.query<OtpRow[]>(
       `
-        SELECT id, phone, purpose, code_hash, attempt_count, max_attempts, expires_at, consumed_at
+        SELECT id, email, phone, purpose, code_hash, attempt_count, max_attempts,
+               expires_at, consumed_at, created_at, verified_at
         FROM otp_challenges
-        WHERE phone = $1 AND purpose = $2 AND consumed_at IS NULL
+        WHERE ${column} = $1 AND purpose = $2 AND consumed_at IS NULL
         ORDER BY created_at DESC
         LIMIT 1
       `,
-      [phone, purpose],
+      [value, purpose],
     );
     return row ? this.mapOtp(row) : null;
   }
@@ -231,6 +300,23 @@ export class PostgresIdentityRepository extends IdentityRepository {
       `UPDATE otp_challenges SET attempt_count = attempt_count + 1 WHERE id = $1 AND consumed_at IS NULL`,
       [challengeId],
     );
+  }
+
+  public async markOtpVerified(challengeId: string, verifiedAt: Date): Promise<boolean> {
+    const rows = await this.dataSource.query<Array<{ id: string }>>(
+      `
+        UPDATE otp_challenges
+        SET verified_at = $2
+        WHERE id = $1
+          AND consumed_at IS NULL
+          AND verified_at IS NULL
+          AND expires_at > $2
+          AND attempt_count < max_attempts
+        RETURNING id
+      `,
+      [challengeId, verifiedAt],
+    );
+    return rows.length === 1;
   }
 
   public async consumeOtp(challengeId: string, consumedAt: Date): Promise<boolean> {
@@ -511,6 +597,7 @@ export class PostgresIdentityRepository extends IdentityRepository {
   private mapOtp(row: OtpRow): OtpChallengeRecord {
     return {
       id: row.id,
+      email: row.email,
       phone: row.phone,
       purpose: row.purpose,
       codeHash: row.code_hash,
@@ -518,6 +605,8 @@ export class PostgresIdentityRepository extends IdentityRepository {
       maxAttempts: row.max_attempts,
       expiresAt: new Date(row.expires_at),
       consumedAt: row.consumed_at ? new Date(row.consumed_at) : null,
+      createdAt: new Date(row.created_at),
+      verifiedAt: row.verified_at ? new Date(row.verified_at) : null,
     };
   }
 

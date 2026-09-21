@@ -39,6 +39,7 @@ interface RefreshClaims {
 export interface SessionClientContext {
   ipAddress: string | null;
   userAgent: string | null;
+  deviceId?: string | null;
 }
 
 @Injectable()

@@ -1,8 +1,18 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsNotEmpty, IsNumberString, IsObject, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsNumberString,
+  IsObject,
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+} from 'class-validator';
 import type { OwnerPropertyStatus, OwnerRoomStatus } from '../public/property.contracts';
 
-const trim = ({ value }: { value: unknown }): unknown => typeof value === 'string' ? value.trim() : value;
+const trim = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? value.trim() : value;
 
 export class CreatePropertyDto {
   @Transform(trim) @IsString() @IsNotEmpty() @MaxLength(200) public name!: string;
@@ -30,5 +40,9 @@ export class UpdateRoomDto {
   @IsOptional() @IsNumberString() public depositAmount?: string;
   @Transform(trim) @IsOptional() @IsString() @Length(3, 3) public currency?: string;
 }
-export class SetPropertyStatusDto { @IsIn(['draft', 'active', 'inactive']) public status!: OwnerPropertyStatus; }
-export class SetRoomStatusDto { @IsIn(['available', 'maintenance', 'inactive']) public status!: OwnerRoomStatus; }
+export class SetPropertyStatusDto {
+  @IsIn(['draft', 'active', 'inactive']) public status!: OwnerPropertyStatus;
+}
+export class SetRoomStatusDto {
+  @IsIn(['available', 'maintenance', 'inactive']) public status!: OwnerRoomStatus;
+}

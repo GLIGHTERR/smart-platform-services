@@ -78,5 +78,5 @@ npm run build
 The initial PostgreSQL model and state rationale are documented in
 [database ERD](docs/database-erd.md).
 
-Phone authentication, OTP, rotating JWT sessions, OAuth hooks and role guards are documented in
+Email authentication, OTP, rotating JWT sessions, OAuth hooks and role guards are documented in
 [authentication and role access](docs/authentication.md).

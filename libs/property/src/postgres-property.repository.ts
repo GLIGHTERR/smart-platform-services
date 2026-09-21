@@ -33,7 +33,12 @@ export class PostgresPropertyRepository extends PropertyRepository {
     super();
   }
   public async listPublicRooms(): Promise<readonly RoomRecord[]> {
-    return (await this.roomsQuery("p.status = 'active' AND p.deleted_at IS NULL AND r.status = 'available' AND r.deleted_at IS NULL", [])).map((row) => this.room(row));
+    return (
+      await this.roomsQuery(
+        "p.status = 'active' AND p.deleted_at IS NULL AND r.status = 'available' AND r.deleted_at IS NULL",
+        [],
+      )
+    ).map((row) => this.room(row));
   }
   public async findProperty(id: string): Promise<PropertyRecord | null> {
     const [row] = await this.dataSource.query<PropertyRow[]>(
@@ -63,16 +68,29 @@ export class PostgresPropertyRepository extends PropertyRepository {
     const [row] = await this.roomsQuery('r.id = $1', [id]);
     return row ? this.room(row) : null;
   }
-  public async createRoom(room: Omit<RoomRecord, 'id' | 'ownerId' | 'deletedAt'>): Promise<RoomRecord> {
+  public async createRoom(
+    room: Omit<RoomRecord, 'id' | 'ownerId' | 'deletedAt'>,
+  ): Promise<RoomRecord> {
     const [row] = await this.dataSource.query<RoomRow[]>(
       'INSERT INTO rooms (property_id, code, name, description, monthly_rent, deposit_amount, currency, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, property_id, (SELECT owner_id FROM properties WHERE id = property_id) AS owner_id, code, name, description, monthly_rent, deposit_amount, currency, status, deleted_at',
-      [room.propertyId, room.code, room.name, room.description, room.monthlyRent, room.depositAmount, room.currency, room.status],
+      [
+        room.propertyId,
+        room.code,
+        room.name,
+        room.description,
+        room.monthlyRent,
+        room.depositAmount,
+        room.currency,
+        room.status,
+      ],
     );
     if (!row) throw new Error('Room insert returned no row');
     return this.room(row);
   }
   public async listRoomsByProperty(propertyId: string): Promise<readonly RoomRecord[]> {
-    return (await this.roomsQuery('r.property_id = $1 AND r.deleted_at IS NULL', [propertyId])).map((row) => this.room(row));
+    return (await this.roomsQuery('r.property_id = $1 AND r.deleted_at IS NULL', [propertyId])).map(
+      (row) => this.room(row),
+    );
   }
   public async findRooms(ids: readonly string[]): Promise<readonly RoomRecord[]> {
     if (!ids.length) return [];

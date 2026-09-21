@@ -40,7 +40,9 @@ describe('HttpLoggingInterceptor', () => {
     const interceptor = new HttpLoggingInterceptor({ write } as unknown as JsonLoggerService);
     const handler = { handle: () => of({ ok: true }) } as CallHandler;
 
-    await firstValueFrom(interceptor.intercept(createContext('http', '/health?token=secret-value'), handler));
+    await firstValueFrom(
+      interceptor.intercept(createContext('http', '/health?token=secret-value'), handler),
+    );
 
     expect(write).toHaveBeenCalledWith(
       'log',
@@ -64,10 +66,10 @@ describe('HttpLoggingInterceptor', () => {
     const handler = { handle: () => throwError(() => error) } as CallHandler;
 
     await expect(
-      firstValueFrom(interceptor.intercept(createContext('http', '/health?token=secret-value'), handler)),
-    ).rejects.toBe(
-      error,
-    );
+      firstValueFrom(
+        interceptor.intercept(createContext('http', '/health?token=secret-value'), handler),
+      ),
+    ).rejects.toBe(error);
     expect(write).toHaveBeenCalledWith(
       'warn',
       'http_request_failed',
