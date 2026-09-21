@@ -303,7 +303,7 @@ export class PostgresIdentityRepository extends IdentityRepository {
   }
 
   public async markOtpVerified(challengeId: string, verifiedAt: Date): Promise<boolean> {
-    const rows = await this.dataSource.query<Array<{ id: string }>>(
+    const result: unknown = await this.dataSource.query(
       `
         UPDATE otp_challenges
         SET verified_at = $2
@@ -316,11 +316,11 @@ export class PostgresIdentityRepository extends IdentityRepository {
       `,
       [challengeId, verifiedAt],
     );
-    return rows.length === 1;
+    return this.updatedExactlyOneRow(result);
   }
 
   public async consumeOtp(challengeId: string, consumedAt: Date): Promise<boolean> {
-    const rows = await this.dataSource.query<Array<{ id: string }>>(
+    const result: unknown = await this.dataSource.query(
       `
         UPDATE otp_challenges
         SET consumed_at = $2
@@ -329,7 +329,7 @@ export class PostgresIdentityRepository extends IdentityRepository {
       `,
       [challengeId, consumedAt],
     );
-    return rows.length === 1;
+    return this.updatedExactlyOneRow(result);
   }
 
   public async cancelOtp(challengeId: string, consumedAt: Date): Promise<void> {
@@ -620,5 +620,15 @@ export class PostgresIdentityRepository extends IdentityRepository {
 
   private isUniqueViolation(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+  }
+
+  private updatedExactlyOneRow(result: unknown): boolean {
+    if (!Array.isArray(result)) {
+      return false;
+    }
+    if (result.length === 2 && Array.isArray(result[0]) && typeof result[1] === 'number') {
+      return result[1] === 1 && result[0].length === 1;
+    }
+    return result.length === 1;
   }
 }
