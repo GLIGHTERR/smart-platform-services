@@ -301,20 +301,20 @@ export class AuthService {
       this.repository.findOtpChallenge({ email }, 'password_reset'),
     ]);
     const eligible = user?.status === 'active' && Boolean(user.passwordHash);
-    if (!eligible) {
-      await this.auditRecovery('password_recovery.requested', null, email, context, now, {
-        outcome: 'accepted',
-      });
-      return this.passwordRecoveryAccepted(randomUUID());
-    }
-
     if (current) {
       const elapsedSeconds = Math.floor((now.getTime() - current.createdAt.getTime()) / 1000);
       const remaining = this.otpResendCooldownSeconds - elapsedSeconds;
       if (remaining > 0) {
-        await this.auditRecovery('password_recovery.requested', user.id, email, context, now, {
-          outcome: 'cooldown',
-        });
+        await this.auditRecovery(
+          'password_recovery.requested',
+          user?.id ?? null,
+          email,
+          context,
+          now,
+          {
+            outcome: 'cooldown',
+          },
+        );
         return this.passwordRecoveryAccepted(current.id, remaining);
       }
     }
@@ -331,6 +331,12 @@ export class AuthService {
       expiresAt: new Date(now.getTime() + this.otpTtlSeconds * 1000),
       requestedIp: context.ipAddress,
     });
+    if (!eligible) {
+      await this.auditRecovery('password_recovery.requested', null, email, context, now, {
+        outcome: 'accepted',
+      });
+      return this.passwordRecoveryAccepted(challengeId);
+    }
     try {
       await this.emailDelivery.sendOtp({
         email,
@@ -347,7 +353,6 @@ export class AuthService {
         { outcome: 'sent' },
       );
     } catch {
-      await this.repository.cancelOtp(challengeId, now);
       await this.auditRecovery('password_recovery.delivery_failed', user.id, email, context, now, {
         outcome: 'accepted',
       });

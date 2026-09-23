@@ -469,7 +469,9 @@ describe('AuthService email identity flows', () => {
       const ineligible = createHarness();
       await configure(ineligible);
       const response = await ineligible.auth.requestPasswordRecovery('user@example.com', context);
+      const repeated = await ineligible.auth.requestPasswordRecovery('user@example.com', context);
       expect(response).toEqual({ ...accepted, challengeId: expect.any(String) });
+      expect(repeated.challengeId).toBe(response.challengeId);
       expect(ineligible.emailDelivery.messages).toHaveLength(0);
     }
   });
@@ -512,20 +514,27 @@ describe('AuthService email identity flows', () => {
       passwordHash: await deliveryFailure.passwords.hash('Secure1!'),
     });
     deliveryFailure.emailDelivery.sendFailure = new Error('brevo unavailable');
-    await expect(
-      deliveryFailure.auth.requestPasswordRecovery('other@example.com', context),
-    ).resolves.toEqual(
+    const failedDelivery = await deliveryFailure.auth.requestPasswordRecovery(
+      'other@example.com',
+      context,
+    );
+    expect(failedDelivery).toEqual(
       expect.objectContaining({
         accepted: true,
         message: 'Nếu email tồn tại, mã xác thực đã được gửi.',
       }),
     );
+    const failedDeliveryRetry = await deliveryFailure.auth.requestPasswordRecovery(
+      'other@example.com',
+      context,
+    );
+    expect(failedDeliveryRetry.challengeId).toBe(failedDelivery.challengeId);
     expect(
       await deliveryFailure.repository.findOtpChallenge(
         { email: 'other@example.com' },
         'password_reset',
       ),
-    ).toBeNull();
+    ).toEqual(expect.objectContaining({ id: expect.any(String) }));
   });
 
   it('issues a context-bound one-time reset token and cancels OTP after five failures', async () => {
