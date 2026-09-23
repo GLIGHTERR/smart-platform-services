@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Smart Platform Authentication API
-  version: 0.2.0
-  description: Email identity contract for SmartTro UC-01 and UC-02.
+  version: 0.3.0
+  description: Email identity contract for SmartTro UC-01, UC-02, and UC-03.
 paths:
   /auth/signup/otp/request:
     post:
@@ -145,6 +145,119 @@ paths:
           description: ACCOUNT_UNVERIFIED or ACCOUNT_INACTIVE after valid credentials
         '429':
           $ref: '#/components/responses/RateLimited'
+  /auth/password/recovery/request:
+    post:
+      summary: Request a password recovery OTP without revealing account existence
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailInput'
+      responses:
+        '202':
+          description: Neutral response for eligible, nonexistent, unverified, and social-only accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordRecoveryAccepted'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          description: Email delivery is not configured for the environment
+  /auth/password/recovery/verify:
+    post:
+      summary: Verify a recovery OTP and issue a context-bound reset token
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, challengeId, code]
+              properties:
+                email:
+                  type: string
+                  format: email
+                challengeId:
+                  type: string
+                  format: uuid
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+      responses:
+        '200':
+          description: OTP consumed and a single-use reset token issued for 10 minutes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verified, resetToken, expiresInSeconds]
+                properties:
+                  verified:
+                    const: true
+                  resetToken:
+                    type: string
+                    writeOnly: true
+                  expiresInSeconds:
+                    type: integer
+                    example: 600
+        '401':
+          description: PASSWORD_RECOVERY_OTP_INVALID
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/password/recovery/reset:
+    post:
+      summary: Reset the password and revoke every existing session
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resetToken, newPassword, confirmPassword]
+              properties:
+                resetToken:
+                  type: string
+                  writeOnly: true
+                  minLength: 32
+                newPassword:
+                  type: string
+                  writeOnly: true
+                  minLength: 8
+                  maxLength: 128
+                  description: Must include lowercase, uppercase, number, and special character.
+                confirmPassword:
+                  type: string
+                  writeOnly: true
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        '200':
+          description: Password reset; no session is created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reset, next, email]
+                properties:
+                  reset:
+                    const: true
+                  next:
+                    const: sign_in
+                  email:
+                    type: string
+                    format: email
+        '400':
+          description: Password policy, confirmation, or unchanged-password error
+        '401':
+          description: PASSWORD_RESET_TOKEN_INVALID
   /auth/token/refresh:
     post:
       summary: Rotate a refresh token
@@ -198,6 +311,24 @@ components:
         attemptId:
           type: string
           format: uuid
+        expiresInSeconds:
+          type: integer
+          example: 600
+        resendAfterSeconds:
+          type: integer
+          example: 60
+    PasswordRecoveryAccepted:
+      type: object
+      required: [accepted, message, challengeId, expiresInSeconds, resendAfterSeconds]
+      properties:
+        accepted:
+          const: true
+        message:
+          const: Nếu email tồn tại, mã xác thực đã được gửi.
+        challengeId:
+          type: string
+          format: uuid
+          description: Opaque correlation value; it does not prove that the account exists.
         expiresInSeconds:
           type: integer
           example: 600

@@ -4,7 +4,7 @@ import type { OtpPurpose } from '../persistence/identity.repository';
 
 export interface EmailOtpMessage {
   email: string;
-  purpose: Extract<OtpPurpose, 'registration'>;
+  purpose: Extract<OtpPurpose, 'registration' | 'password_reset'>;
   code: string;
   expiresInSeconds: number;
 }
@@ -53,17 +53,18 @@ export class ConfigurableEmailDeliveryService extends EmailDeliveryPort {
       await this.sendWithBrevo(message);
       return;
     }
-    process.stdout.write(
-      `${JSON.stringify({
-        level: 'warn',
-        context: 'LocalEmailDelivery',
-        message: 'local_development_email_otp',
-        email: message.email,
-        purpose: message.purpose,
-        code: message.code,
-        expiresInSeconds: message.expiresInSeconds,
-      })}\n`,
-    );
+    const localEvent: Record<string, unknown> = {
+      level: 'warn',
+      context: 'LocalEmailDelivery',
+      message: 'local_development_email_otp',
+      email: message.email,
+      purpose: message.purpose,
+      expiresInSeconds: message.expiresInSeconds,
+    };
+    if (message.purpose === 'registration') {
+      localEvent.code = message.code;
+    }
+    process.stdout.write(`${JSON.stringify(localEvent)}\n`);
   }
 
   private async sendWithBrevo(message: EmailOtpMessage): Promise<void> {
@@ -81,7 +82,10 @@ export class ConfigurableEmailDeliveryService extends EmailDeliveryPort {
             name: this.config.getOrThrow<string>('auth.brevoSenderName'),
           },
           to: [{ email: message.email }],
-          subject: 'Mã xác thực đăng ký Smart Platform',
+          subject:
+            message.purpose === 'password_reset'
+              ? 'Mã xác thực khôi phục mật khẩu Smart Platform'
+              : 'Mã xác thực đăng ký Smart Platform',
           textContent: `Mã OTP của bạn là ${message.code}. Mã có hiệu lực trong ${Math.ceil(message.expiresInSeconds / 60)} phút.`,
           htmlContent: `<p>Mã OTP của bạn là:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px">${message.code}</p><p>Mã có hiệu lực trong ${Math.ceil(message.expiresInSeconds / 60)} phút.</p><p>Nếu bạn không yêu cầu mã này, hãy bỏ qua email.</p>`,
         }),

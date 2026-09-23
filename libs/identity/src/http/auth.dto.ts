@@ -70,6 +70,37 @@ export class SignupCompleteDto extends PasswordDto {
   public phone?: string;
 }
 
+export class PasswordRecoveryRequestDto extends EmailDto {}
+
+export class PasswordRecoveryVerifyDto extends EmailDto {
+  @IsUUID()
+  public challengeId!: string;
+
+  @Matches(OTP_CODE)
+  public code!: string;
+}
+
+export class PasswordRecoveryResetDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(512)
+  public resetToken!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(/[a-z]/, { message: 'newPassword must contain a lowercase letter' })
+  @Matches(/[A-Z]/, { message: 'newPassword must contain an uppercase letter' })
+  @Matches(/\d/, { message: 'newPassword must contain a number' })
+  @Matches(/[^A-Za-z0-9]/, { message: 'newPassword must contain a special character' })
+  public newPassword!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  public confirmPassword!: string;
+}
+
 export class RegisterDto {
   @Transform(({ value }): unknown => trimmed(value))
   @Matches(E164_PHONE, { message: 'phone must use E.164 format, for example +84901234567' })

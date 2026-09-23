@@ -96,6 +96,12 @@ describe('AuthService email identity flows', () => {
         otpRequestLimitPerHour: 5,
         otpIpLimitPerHour: 20,
         otpDeviceLimitPerHour: 20,
+        passwordRecoveryEmailLimit: 5,
+        passwordRecoveryEmailWindowSeconds: 900,
+        passwordRecoveryIpLimit: 20,
+        passwordRecoveryIpWindowSeconds: 3600,
+        passwordRecoveryDeviceLimit: 20,
+        resetTokenTtlSeconds: 600,
         loginFailureLimit: 5,
         loginAbuseLimit: 20,
         loginWindowSeconds: 900,
@@ -411,6 +417,387 @@ describe('AuthService email identity flows', () => {
     await expect(harness.sessions.authenticateAccess(two.accessToken)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
+  });
+
+  it('returns the same neutral recovery contract for eligible and ineligible accounts', async () => {
+    const eligible = createHarness();
+    const passwordHash = await eligible.passwords.hash('Secure1!');
+    const user = eligible.repository.addActiveUser({ email: 'user@example.com', passwordHash });
+    const accepted = await eligible.auth.requestPasswordRecovery('  USER@Example.com ', context);
+
+    expect(accepted).toEqual({
+      accepted: true,
+      message: 'Nếu email tồn tại, mã xác thực đã được gửi.',
+      challengeId: expect.any(String),
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+    });
+    expect(eligible.emailDelivery.messages).toEqual([
+      expect.objectContaining({ email: 'user@example.com', purpose: 'password_reset' }),
+    ]);
+    expect(eligible.repository.recoveryAudits).toEqual([
+      expect.objectContaining({
+        eventType: 'password_recovery.requested',
+        userId: user.id,
+        maskedEmail: 'us**@example.com',
+        data: { outcome: 'sent' },
+      }),
+    ]);
+    expect(JSON.stringify(eligible.repository.recoveryAudits)).not.toContain(
+      eligible.emailDelivery.messages[0]?.code ?? 'unreachable',
+    );
+
+    for (const configure of [
+      (harness: ReturnType<typeof createHarness>): void => {
+        void harness;
+      },
+      async (harness: ReturnType<typeof createHarness>): Promise<void> => {
+        const pending = harness.repository.addActiveUser({
+          email: 'user@example.com',
+          passwordHash: await harness.passwords.hash('Secure1!'),
+        });
+        harness.repository.users.set(pending.id, { ...pending, status: 'pending' });
+      },
+      (harness: ReturnType<typeof createHarness>): void => {
+        const socialOnly = harness.repository.addActiveUser({
+          email: 'user@example.com',
+          passwordHash: 'provider-managed',
+        });
+        harness.repository.users.set(socialOnly.id, { ...socialOnly, passwordHash: null });
+      },
+    ]) {
+      const ineligible = createHarness();
+      await configure(ineligible);
+      const response = await ineligible.auth.requestPasswordRecovery('user@example.com', context);
+      expect(response).toEqual({ ...accepted, challengeId: expect.any(String) });
+      expect(ineligible.emailDelivery.messages).toHaveLength(0);
+    }
+  });
+
+  it('enforces recovery cooldown, replacement, request limits, and provider failure privacy', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-23T00:00:00Z') });
+    const harness = createHarness();
+    harness.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await harness.passwords.hash('Secure1!'),
+    });
+    const first = await harness.auth.requestPasswordRecovery('user@example.com', context);
+    const immediate = await harness.auth.requestPasswordRecovery('user@example.com', context);
+    expect(immediate.challengeId).toBe(first.challengeId);
+    expect(harness.emailDelivery.messages).toHaveLength(1);
+
+    jest.advanceTimersByTime(61_000);
+    const replacement = await harness.auth.requestPasswordRecovery('user@example.com', context);
+    expect(replacement.challengeId).not.toBe(first.challengeId);
+    await expect(
+      harness.auth.verifyPasswordRecovery(
+        {
+          email: 'user@example.com',
+          challengeId: first.challengeId,
+          code: harness.emailDelivery.messages[0]?.code ?? '',
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    await harness.auth.requestPasswordRecovery('user@example.com', context);
+    await harness.auth.requestPasswordRecovery('user@example.com', context);
+    await expect(
+      harness.auth.requestPasswordRecovery('user@example.com', context),
+    ).rejects.toMatchObject({ status: 429 });
+
+    const deliveryFailure = createHarness();
+    deliveryFailure.repository.addActiveUser({
+      email: 'other@example.com',
+      passwordHash: await deliveryFailure.passwords.hash('Secure1!'),
+    });
+    deliveryFailure.emailDelivery.sendFailure = new Error('brevo unavailable');
+    await expect(
+      deliveryFailure.auth.requestPasswordRecovery('other@example.com', context),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        accepted: true,
+        message: 'Nếu email tồn tại, mã xác thực đã được gửi.',
+      }),
+    );
+    expect(
+      await deliveryFailure.repository.findOtpChallenge(
+        { email: 'other@example.com' },
+        'password_reset',
+      ),
+    ).toBeNull();
+  });
+
+  it('issues a context-bound one-time reset token and cancels OTP after five failures', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-23T00:00:00Z') });
+    const harness = createHarness();
+    harness.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await harness.passwords.hash('Secure1!'),
+    });
+    const requested = await harness.auth.requestPasswordRecovery('user@example.com', context);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(
+        harness.auth.verifyPasswordRecovery(
+          { email: 'user@example.com', challengeId: requested.challengeId, code: '000000' },
+          context,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    }
+    await expect(
+      harness.auth.verifyPasswordRecovery(
+        {
+          email: 'user@example.com',
+          challengeId: requested.challengeId,
+          code: harness.emailDelivery.messages[0]?.code ?? '',
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const validHarness = createHarness();
+    validHarness.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await validHarness.passwords.hash('Secure1!'),
+    });
+    const valid = await validHarness.auth.requestPasswordRecovery('user@example.com', context);
+    const verified = await validHarness.auth.verifyPasswordRecovery(
+      {
+        email: 'user@example.com',
+        challengeId: valid.challengeId,
+        code: validHarness.emailDelivery.messages.at(-1)?.code ?? '',
+      },
+      context,
+    );
+    expect(verified).toEqual({
+      verified: true,
+      resetToken: expect.any(String),
+      expiresInSeconds: 600,
+    });
+    expect(JSON.stringify(validHarness.repository.recoveryAudits)).not.toContain(
+      verified.resetToken,
+    );
+    await expect(
+      validHarness.auth.verifyPasswordRecovery(
+        {
+          email: 'user@example.com',
+          challengeId: valid.challengeId,
+          code: validHarness.emailDelivery.messages.at(-1)?.code ?? '',
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('atomically resets the password, revokes every session, and rejects replay or binding mismatch', async () => {
+    const harness = createHarness();
+    harness.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await harness.passwords.hash('Secure1!'),
+    });
+    const sessionOne = await harness.auth.login(
+      { email: 'user@example.com', password: 'Secure1!' },
+      context,
+    );
+    const sessionTwo = await harness.auth.login(
+      { email: 'user@example.com', password: 'Secure1!' },
+      { ...context, deviceId: 'device-2' },
+    );
+    const requested = await harness.auth.requestPasswordRecovery('user@example.com', context);
+    const verified = await harness.auth.verifyPasswordRecovery(
+      {
+        email: 'user@example.com',
+        challengeId: requested.challengeId,
+        code: harness.emailDelivery.messages[0]?.code ?? '',
+      },
+      context,
+    );
+
+    await expect(
+      harness.auth.completePasswordRecovery(
+        {
+          resetToken: verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Changed1!',
+        },
+        { ...context, deviceId: 'wrong-device' },
+      ),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_RESET_TOKEN_INVALID' } });
+    await expect(
+      harness.auth.completePasswordRecovery(
+        {
+          resetToken: verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Changed1!',
+        },
+        context,
+      ),
+    ).resolves.toEqual({ reset: true, next: 'sign_in', email: 'user@example.com' });
+    await expect(
+      harness.sessions.authenticateAccess(sessionOne.accessToken),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      harness.sessions.authenticateAccess(sessionTwo.accessToken),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      harness.auth.completePasswordRecovery(
+        {
+          resetToken: verified.resetToken,
+          newPassword: 'Another1!',
+          confirmPassword: 'Another1!',
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_RESET_TOKEN_INVALID' } });
+    expect(harness.repository.recoveryAudits.map((audit) => audit.eventType)).toEqual(
+      expect.arrayContaining(['password_recovery.reset', 'password_recovery.sessions_revoked']),
+    );
+  });
+
+  it('rejects reset expiry, confirmation mismatch, current-password reuse, and double submit', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-23T00:00:00Z') });
+    const setup = async (): Promise<{
+      harness: ReturnType<typeof createHarness>;
+      verified: Awaited<ReturnType<AuthService['verifyPasswordRecovery']>>;
+    }> => {
+      const harness = createHarness();
+      harness.repository.addActiveUser({
+        email: 'user@example.com',
+        passwordHash: await harness.passwords.hash('Secure1!'),
+      });
+      const requested = await harness.auth.requestPasswordRecovery('user@example.com', context);
+      const verified = await harness.auth.verifyPasswordRecovery(
+        {
+          email: 'user@example.com',
+          challengeId: requested.challengeId,
+          code: harness.emailDelivery.messages[0]?.code ?? '',
+        },
+        context,
+      );
+      return { harness, verified };
+    };
+
+    const mismatch = await setup();
+    await expect(
+      mismatch.harness.auth.completePasswordRecovery(
+        {
+          resetToken: mismatch.verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Different1!',
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_CONFIRMATION_MISMATCH' } });
+    await expect(
+      mismatch.harness.auth.completePasswordRecovery(
+        {
+          resetToken: mismatch.verified.resetToken,
+          newPassword: 'Secure1!',
+          confirmPassword: 'Secure1!',
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_UNCHANGED' } });
+
+    const expired = await setup();
+    jest.advanceTimersByTime(601_000);
+    await expect(
+      expired.harness.auth.completePasswordRecovery(
+        {
+          resetToken: expired.verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Changed1!',
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'PASSWORD_RESET_TOKEN_INVALID' } });
+
+    jest.setSystemTime(new Date('2026-09-23T01:00:00Z'));
+    const concurrent = await setup();
+    const results = await Promise.allSettled([
+      concurrent.harness.auth.completePasswordRecovery(
+        {
+          resetToken: concurrent.verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Changed1!',
+        },
+        context,
+      ),
+      concurrent.harness.auth.completePasswordRecovery(
+        {
+          resetToken: concurrent.verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Changed1!',
+        },
+        context,
+      ),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  });
+
+  it('handles recovery persistence races, missing accounts, and absent network metadata', async () => {
+    const noMetadata: SessionClientContext = {
+      ipAddress: null,
+      userAgent: null,
+      deviceId: null,
+    };
+    const unknown = createHarness();
+    await unknown.auth.requestPasswordRecovery('missing@example.com', noMetadata);
+    await expect(
+      unknown.auth.verifyPasswordRecovery(
+        {
+          email: 'missing@example.com',
+          challengeId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
+          code: '123456',
+        },
+        noMetadata,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const issueRace = createHarness();
+    issueRace.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await issueRace.passwords.hash('Secure1!'),
+    });
+    const racedRequest = await issueRace.auth.requestPasswordRecovery('user@example.com', context);
+    jest.spyOn(issueRace.repository, 'issuePasswordResetToken').mockResolvedValueOnce(false);
+    await expect(
+      issueRace.auth.verifyPasswordRecovery(
+        {
+          email: 'user@example.com',
+          challengeId: racedRequest.challengeId,
+          code: issueRace.emailDelivery.messages[0]?.code ?? '',
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const missingUser = createHarness();
+    const user = missingUser.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await missingUser.passwords.hash('Secure1!'),
+    });
+    const request = await missingUser.auth.requestPasswordRecovery('user@example.com', context);
+    const verified = await missingUser.auth.verifyPasswordRecovery(
+      {
+        email: 'user@example.com',
+        challengeId: request.challengeId,
+        code: missingUser.emailDelivery.messages[0]?.code ?? '',
+      },
+      context,
+    );
+    missingUser.repository.users.delete(user.id);
+    await expect(
+      missingUser.auth.completePasswordRecovery(
+        {
+          resetToken: verified.resetToken,
+          newPassword: 'Changed1!',
+          confirmPassword: 'Changed1!',
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('feature-gates legacy phone registration, passwordless login, and recovery', async () => {

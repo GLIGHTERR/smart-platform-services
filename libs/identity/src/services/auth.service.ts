@@ -7,10 +7,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type {
   ChangePasswordDto,
   LoginDto,
+  PasswordRecoveryResetDto,
+  PasswordRecoveryVerifyDto,
   RegisterDto,
   ResetPasswordDto,
   SignupCompleteDto,
@@ -58,6 +60,26 @@ export interface RegistrationResponse {
   expiresInSeconds: number;
 }
 
+export interface PasswordRecoveryAcceptedResponse {
+  accepted: true;
+  message: 'Nếu email tồn tại, mã xác thực đã được gửi.';
+  challengeId: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+}
+
+export interface PasswordRecoveryVerifiedResponse {
+  verified: true;
+  resetToken: string;
+  expiresInSeconds: number;
+}
+
+export interface PasswordRecoveryCompletedResponse {
+  reset: true;
+  next: 'sign_in';
+  email: string;
+}
+
 @Injectable()
 export class AuthService {
   private readonly otpSecret: string;
@@ -71,6 +93,12 @@ export class AuthService {
   private readonly loginAbuseLimit: number;
   private readonly loginWindowSeconds: number;
   private readonly loginLockSeconds: number;
+  private readonly passwordRecoveryEmailLimit: number;
+  private readonly passwordRecoveryEmailWindowSeconds: number;
+  private readonly passwordRecoveryIpLimit: number;
+  private readonly passwordRecoveryIpWindowSeconds: number;
+  private readonly passwordRecoveryDeviceLimit: number;
+  private readonly resetTokenTtlSeconds: number;
   private readonly legacyPhoneFlowsEnabled: boolean;
 
   public constructor(
@@ -94,6 +122,18 @@ export class AuthService {
     this.loginAbuseLimit = config.getOrThrow<number>('auth.loginAbuseLimit');
     this.loginWindowSeconds = config.getOrThrow<number>('auth.loginWindowSeconds');
     this.loginLockSeconds = config.getOrThrow<number>('auth.loginLockSeconds');
+    this.passwordRecoveryEmailLimit = config.getOrThrow<number>('auth.passwordRecoveryEmailLimit');
+    this.passwordRecoveryEmailWindowSeconds = config.getOrThrow<number>(
+      'auth.passwordRecoveryEmailWindowSeconds',
+    );
+    this.passwordRecoveryIpLimit = config.getOrThrow<number>('auth.passwordRecoveryIpLimit');
+    this.passwordRecoveryIpWindowSeconds = config.getOrThrow<number>(
+      'auth.passwordRecoveryIpWindowSeconds',
+    );
+    this.passwordRecoveryDeviceLimit = config.getOrThrow<number>(
+      'auth.passwordRecoveryDeviceLimit',
+    );
+    this.resetTokenTtlSeconds = config.getOrThrow<number>('auth.resetTokenTtlSeconds');
     this.legacyPhoneFlowsEnabled = config.getOrThrow<boolean>('auth.legacyPhoneFlowsEnabled');
   }
 
@@ -243,6 +283,193 @@ export class AuthService {
     }
     await this.repository.markLogin(user.id, now);
     return this.sessions.create(user, context);
+  }
+
+  public async requestPasswordRecovery(
+    rawEmail: string,
+    context: SessionClientContext,
+  ): Promise<PasswordRecoveryAcceptedResponse> {
+    const email = this.normalizeEmail(rawEmail);
+    const now = new Date();
+    const keys = this.passwordRecoveryRequestKeys(email, context);
+    await this.rateLimiter.assertAllowed(keys, now);
+    await this.rateLimiter.recordFailure(keys, now);
+    await this.emailDelivery.assertAvailable();
+
+    const [user, current] = await Promise.all([
+      this.repository.findByEmail(email),
+      this.repository.findOtpChallenge({ email }, 'password_reset'),
+    ]);
+    const eligible = user?.status === 'active' && Boolean(user.passwordHash);
+    if (!eligible) {
+      await this.auditRecovery('password_recovery.requested', null, email, context, now, {
+        outcome: 'accepted',
+      });
+      return this.passwordRecoveryAccepted(randomUUID());
+    }
+
+    if (current) {
+      const elapsedSeconds = Math.floor((now.getTime() - current.createdAt.getTime()) / 1000);
+      const remaining = this.otpResendCooldownSeconds - elapsedSeconds;
+      if (remaining > 0) {
+        await this.auditRecovery('password_recovery.requested', user.id, email, context, now, {
+          outcome: 'cooldown',
+        });
+        return this.passwordRecoveryAccepted(current.id, remaining);
+      }
+    }
+
+    const code = randomInt(100_000, 1_000_000).toString();
+    const challengeId = randomUUID();
+    await this.repository.replaceOtpChallenge({
+      id: challengeId,
+      email,
+      phone: null,
+      purpose: 'password_reset',
+      codeHash: this.hashOtp(email, 'password_reset', code),
+      maxAttempts: this.otpMaxAttempts,
+      expiresAt: new Date(now.getTime() + this.otpTtlSeconds * 1000),
+      requestedIp: context.ipAddress,
+    });
+    try {
+      await this.emailDelivery.sendOtp({
+        email,
+        purpose: 'password_reset',
+        code,
+        expiresInSeconds: this.otpTtlSeconds,
+      });
+      await this.auditRecovery(
+        current ? 'password_recovery.resent' : 'password_recovery.requested',
+        user.id,
+        email,
+        context,
+        now,
+        { outcome: 'sent' },
+      );
+    } catch {
+      await this.repository.cancelOtp(challengeId, now);
+      await this.auditRecovery('password_recovery.delivery_failed', user.id, email, context, now, {
+        outcome: 'accepted',
+      });
+    }
+    return this.passwordRecoveryAccepted(challengeId);
+  }
+
+  public async verifyPasswordRecovery(
+    input: PasswordRecoveryVerifyDto,
+    context: SessionClientContext,
+  ): Promise<PasswordRecoveryVerifiedResponse> {
+    const email = this.normalizeEmail(input.email);
+    const now = new Date();
+    const keys = this.otpVerifyKeys(email, context);
+    await this.rateLimiter.assertAllowed(keys, now);
+    const [challenge, user] = await Promise.all([
+      this.repository.findOtpChallenge({ email }, 'password_reset'),
+      this.repository.findByEmail(email),
+    ]);
+    const eligible = user?.status === 'active' && Boolean(user.passwordHash);
+    if (
+      !eligible ||
+      !challenge ||
+      challenge.id !== input.challengeId ||
+      challenge.consumedAt ||
+      challenge.expiresAt <= now ||
+      challenge.attemptCount >= challenge.maxAttempts ||
+      !this.otpMatches(email, 'password_reset', input.code, challenge.codeHash)
+    ) {
+      if (
+        challenge &&
+        challenge.id === input.challengeId &&
+        challenge.attemptCount < challenge.maxAttempts
+      ) {
+        await this.repository.recordOtpFailure(challenge.id);
+      }
+      await this.rateLimiter.recordFailure(keys, now);
+      await this.auditRecovery(
+        'password_recovery.verify_failed',
+        user?.id ?? null,
+        email,
+        context,
+        now,
+      );
+      throw this.invalidRecoveryOtp();
+    }
+
+    const resetToken = randomBytes(32).toString('base64url');
+    const issued = await this.repository.issuePasswordResetToken({
+      challengeId: challenge.id,
+      userId: user.id,
+      email,
+      codeHash: challenge.codeHash,
+      tokenHash: this.hashResetToken(resetToken),
+      contextHash: this.hashRecoveryContext(context),
+      expiresAt: new Date(now.getTime() + this.resetTokenTtlSeconds * 1000),
+      issuedAt: now,
+      audit: {
+        eventType: 'password_recovery.verified',
+        userId: user.id,
+        maskedEmail: this.maskEmail(email),
+        occurredAt: now,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      },
+    });
+    if (!issued) {
+      throw this.invalidRecoveryOtp();
+    }
+    await this.rateLimiter.clear(keys);
+    return { verified: true, resetToken, expiresInSeconds: this.resetTokenTtlSeconds };
+  }
+
+  public async completePasswordRecovery(
+    input: PasswordRecoveryResetDto,
+    context: SessionClientContext,
+  ): Promise<PasswordRecoveryCompletedResponse> {
+    if (input.newPassword !== input.confirmPassword) {
+      throw new BadRequestException({
+        code: 'PASSWORD_CONFIRMATION_MISMATCH',
+        message: 'Password confirmation does not match',
+      });
+    }
+    const now = new Date();
+    const tokenHash = this.hashResetToken(input.resetToken);
+    const token = await this.repository.findPasswordResetToken(tokenHash);
+    if (
+      !token ||
+      token.consumedAt ||
+      token.expiresAt <= now ||
+      token.contextHash !== this.hashRecoveryContext(context)
+    ) {
+      throw this.invalidResetToken();
+    }
+    const user = await this.repository.findById(token.userId);
+    if (!user?.email || !user.passwordHash || user.status !== 'active') {
+      throw this.invalidResetToken();
+    }
+    if (await this.passwords.verify(input.newPassword, user.passwordHash)) {
+      throw new BadRequestException({
+        code: 'PASSWORD_UNCHANGED',
+        message: 'New password must be different from the current password',
+      });
+    }
+    const result = await this.repository.resetPasswordWithToken({
+      tokenHash,
+      contextHash: this.hashRecoveryContext(context),
+      passwordHash: await this.passwords.hash(input.newPassword),
+      resetAt: now,
+      audit: {
+        eventType: 'password_recovery.reset',
+        userId: user.id,
+        maskedEmail: this.maskEmail(user.email),
+        occurredAt: now,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      },
+    });
+    if (result !== 'reset') {
+      throw this.invalidResetToken();
+    }
+    return { reset: true, next: 'sign_in', email: user.email };
   }
 
   public async logoutAll(actor: AuthenticatedActor): Promise<void> {
@@ -498,6 +725,19 @@ export class AuthService {
     };
   }
 
+  private passwordRecoveryAccepted(
+    challengeId: string,
+    resendAfterSeconds = this.otpResendCooldownSeconds,
+  ): PasswordRecoveryAcceptedResponse {
+    return {
+      accepted: true,
+      message: 'Nếu email tồn tại, mã xác thực đã được gửi.',
+      challengeId,
+      expiresInSeconds: this.otpTtlSeconds,
+      resendAfterSeconds: Math.max(1, Math.min(this.otpResendCooldownSeconds, resendAfterSeconds)),
+    };
+  }
+
   private otpMatches(
     recipient: string,
     purpose: OtpPurpose,
@@ -512,6 +752,18 @@ export class AuthService {
   private hashOtp(recipient: string, purpose: OtpPurpose, code: string): string {
     return createHmac('sha256', this.otpSecret)
       .update(`${purpose}:${recipient}:${code}`)
+      .digest('hex');
+  }
+
+  private hashResetToken(token: string): string {
+    return createHmac('sha256', this.otpSecret)
+      .update(`password_reset_token:${token}`)
+      .digest('hex');
+  }
+
+  private hashRecoveryContext(context: SessionClientContext): string {
+    return createHmac('sha256', this.otpSecret)
+      .update(`password_reset_context:${this.deviceKey(context)}`)
       .digest('hex');
   }
 
@@ -557,6 +809,30 @@ export class AuthService {
         scope: 'otp_request_device',
         value: this.deviceKey(context),
         policy: { ...emailPolicy, limit: this.otpDeviceLimitPerHour },
+      },
+    ]);
+  }
+
+  private passwordRecoveryRequestKeys(email: string, context: SessionClientContext): ThrottleKey[] {
+    const emailPolicy = {
+      limit: this.passwordRecoveryEmailLimit,
+      windowMs: this.passwordRecoveryEmailWindowSeconds * 1000,
+      blockMs: this.passwordRecoveryEmailWindowSeconds * 1000,
+    };
+    const abusePolicy = {
+      limit: this.passwordRecoveryIpLimit,
+      windowMs: this.passwordRecoveryIpWindowSeconds * 1000,
+      blockMs: this.passwordRecoveryIpWindowSeconds * 1000,
+    };
+    return this.compactKeys([
+      { scope: 'password_recovery_email', value: email, policy: emailPolicy },
+      context.ipAddress
+        ? { scope: 'password_recovery_ip', value: context.ipAddress, policy: abusePolicy }
+        : null,
+      {
+        scope: 'password_recovery_device',
+        value: this.deviceKey(context),
+        policy: { ...abusePolicy, limit: this.passwordRecoveryDeviceLimit },
       },
     ]);
   }
@@ -614,6 +890,31 @@ export class AuthService {
     return phone.trim();
   }
 
+  private maskEmail(email: string): string {
+    const [local, domain] = email.split('@') as [string, string];
+    const visible = local.slice(0, Math.min(2, local.length));
+    return `${visible}${'*'.repeat(Math.max(1, local.length - visible.length))}@${domain}`;
+  }
+
+  private auditRecovery(
+    eventType: string,
+    userId: string | null,
+    email: string,
+    context: SessionClientContext,
+    occurredAt: Date,
+    data?: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    return this.repository.recordRecoveryAudit({
+      eventType,
+      userId,
+      maskedEmail: this.maskEmail(email),
+      occurredAt,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      data,
+    });
+  }
+
   private assertLegacyPhoneFlowsEnabled(): void {
     if (!this.legacyPhoneFlowsEnabled) {
       throw new ServiceUnavailableException({
@@ -642,6 +943,20 @@ export class AuthService {
     return new UnauthorizedException({
       code: 'INVALID_OTP',
       message: 'OTP is invalid or expired',
+    });
+  }
+
+  private invalidRecoveryOtp(): UnauthorizedException {
+    return new UnauthorizedException({
+      code: 'PASSWORD_RECOVERY_OTP_INVALID',
+      message: 'OTP is invalid or expired',
+    });
+  }
+
+  private invalidResetToken(): UnauthorizedException {
+    return new UnauthorizedException({
+      code: 'PASSWORD_RESET_TOKEN_INVALID',
+      message: 'Password reset token is invalid or expired',
     });
   }
 
