@@ -29,6 +29,26 @@ describe('OTP delivery adapters', () => {
     expect(write).toHaveBeenCalledWith(expect.stringContaining('local_development_email_otp'));
   });
 
+  it('never writes password recovery OTP values to the local log adapter', async () => {
+    const write = jest.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const adapter = new ConfigurableEmailDeliveryService(
+      new ConfigService({
+        auth: { emailDeliveryMode: 'console' },
+        app: { environment: 'development' },
+      }),
+    );
+
+    await adapter.sendOtp({
+      email: 'user@example.com',
+      purpose: 'password_reset',
+      code: '654321',
+      expiresInSeconds: 600,
+    });
+
+    expect(write).toHaveBeenCalledWith(expect.stringContaining('password_reset'));
+    expect(write).not.toHaveBeenCalledWith(expect.stringContaining('654321'));
+  });
+
   it.each([
     ['disabled', 'development'],
     ['console', 'production'],

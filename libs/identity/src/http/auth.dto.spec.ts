@@ -1,6 +1,13 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { LoginDto, SignupCompleteDto, SignupOtpRequestDto, SignupOtpVerifyDto } from './auth.dto';
+import {
+  LoginDto,
+  PasswordRecoveryResetDto,
+  PasswordRecoveryVerifyDto,
+  SignupCompleteDto,
+  SignupOtpRequestDto,
+  SignupOtpVerifyDto,
+} from './auth.dto';
 
 describe('email auth DTOs', () => {
   it('normalizes valid email inputs without changing passwords', async () => {
@@ -58,5 +65,28 @@ describe('email auth DTOs', () => {
     await expect(validate(valid)).resolves.toHaveLength(0);
     expect(valid.phone).toBe('+84901234567');
     expect(await validate(invalid)).toHaveLength(1);
+  });
+
+  it('validates recovery challenge, reset token, password policy, and confirmation payload shape', async () => {
+    const verification = plainToInstance(PasswordRecoveryVerifyDto, {
+      email: ' USER@example.com ',
+      challengeId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
+      code: '123456',
+    });
+    const reset = plainToInstance(PasswordRecoveryResetDto, {
+      resetToken: 'a'.repeat(43),
+      newPassword: 'Changed1!',
+      confirmPassword: 'Changed1!',
+    });
+    await expect(validate(verification)).resolves.toHaveLength(0);
+    expect(verification.email).toBe('user@example.com');
+    await expect(validate(reset)).resolves.toHaveLength(0);
+
+    const invalid = plainToInstance(PasswordRecoveryResetDto, {
+      resetToken: 'short',
+      newPassword: 'password',
+      confirmPassword: '',
+    });
+    expect(await validate(invalid)).not.toHaveLength(0);
   });
 });

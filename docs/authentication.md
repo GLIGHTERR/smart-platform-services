@@ -1,4 +1,4 @@
-# Email authentication and role access
+# Email authentication, recovery, and role access
 
 GLI-50 aligns the shared identity boundary with SmartTro UC-01 and UC-02. Normalized email
 (`trim` then lowercase) is the unique MVP login identifier. Phone is optional, non-unique contact
@@ -80,6 +80,29 @@ JWT and OTP secrets are required and must contain at least 32 characters. Policy
 - `LEGACY_PHONE_FLOWS_ENABLED=false`
 
 The machine-readable contract is [OpenAPI](openapi.yaml).
+
+## UC-03 password recovery
+
+Password recovery uses three independent endpoints:
+
+1. `POST /auth/password/recovery/request` always returns the neutral Vietnamese message plus an
+   opaque challenge ID. Only active accounts with a password receive an email. Unknown, pending,
+   disabled, and social-only accounts are not created or linked.
+2. `POST /auth/password/recovery/verify` consumes a valid six-digit OTP and returns a random reset
+   token. The token is stored only as an HMAC digest, expires after 10 minutes, and is bound to the
+   requesting `X-Device-Id` (or the bounded IP/user-agent fallback).
+3. `POST /auth/password/recovery/reset` validates password confirmation and the UC-01 policy,
+   rejects the current password, atomically consumes the token, changes the password, and revokes
+   every access/refresh session. It does not create a new session.
+
+Recovery request throttles default to 5 requests per 15 minutes per normalized email and 20 per
+hour per IP/device. A new challenge invalidates the old challenge; five wrong OTPs cancel the
+challenge. Recovery audit rows contain an immutable user ID when one is known and a masked email,
+never an OTP, reset token, or password.
+
+Migration `1700000003000-password-recovery` is additive. Its rollback drops only
+`password_reset_tokens`; rolling it back invalidates outstanding reset tokens but does not modify
+users, passwords, OTP history, or sessions.
 
 ## Acceptance-criteria test map
 

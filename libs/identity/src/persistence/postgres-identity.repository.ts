@@ -11,6 +11,9 @@ import {
   type NewSocialUser,
   type OtpChallengeRecord,
   type OtpPurpose,
+  type PasswordResetResult,
+  type PasswordResetTokenRecord,
+  type RecoveryAuditInput,
   type SessionRotationResult,
   type ThrottleBucket,
   type ThrottlePolicy,
@@ -52,6 +55,14 @@ interface ThrottleRow {
   window_started_at: Date;
   attempt_count: number;
   blocked_until: Date | null;
+}
+
+interface PasswordResetTokenRow {
+  user_id: string;
+  token_hash: string;
+  context_hash: string;
+  expires_at: Date;
+  consumed_at: Date | null;
 }
 
 @Injectable()
@@ -297,7 +308,15 @@ export class PostgresIdentityRepository extends IdentityRepository {
 
   public async recordOtpFailure(challengeId: string): Promise<void> {
     await this.dataSource.query(
-      `UPDATE otp_challenges SET attempt_count = attempt_count + 1 WHERE id = $1 AND consumed_at IS NULL`,
+      `
+        UPDATE otp_challenges
+        SET attempt_count = attempt_count + 1,
+            consumed_at = CASE
+              WHEN attempt_count + 1 >= max_attempts THEN now()
+              ELSE consumed_at
+            END
+        WHERE id = $1 AND consumed_at IS NULL
+      `,
       [challengeId],
     );
   }
@@ -337,6 +356,157 @@ export class PostgresIdentityRepository extends IdentityRepository {
       `UPDATE otp_challenges SET consumed_at = $2 WHERE id = $1 AND consumed_at IS NULL`,
       [challengeId, consumedAt],
     );
+  }
+
+  public async issuePasswordResetToken(input: {
+    challengeId: string;
+    userId: string;
+    email: string;
+    codeHash: string;
+    tokenHash: string;
+    contextHash: string;
+    expiresAt: Date;
+    issuedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<boolean> {
+    return this.dataSource.transaction(async (manager) => {
+      const [challenge] = await manager.query<Array<{ id: string }>>(
+        `
+          SELECT oc.id
+          FROM otp_challenges oc
+          JOIN users u ON u.id = $2
+          WHERE oc.id = $1
+            AND oc.email = $3
+            AND oc.purpose = 'password_reset'
+            AND oc.code_hash = $4
+            AND oc.consumed_at IS NULL
+            AND oc.verified_at IS NULL
+            AND oc.expires_at > $5
+            AND oc.attempt_count < oc.max_attempts
+            AND lower(u.email) = lower(oc.email)
+            AND u.status = 'active'
+            AND u.password_hash IS NOT NULL
+            AND u.deleted_at IS NULL
+          FOR UPDATE OF oc, u
+        `,
+        [input.challengeId, input.userId, input.email, input.codeHash, input.issuedAt],
+      );
+      if (!challenge) {
+        return false;
+      }
+      await manager.query(
+        `UPDATE otp_challenges SET verified_at = $2, consumed_at = $2 WHERE id = $1`,
+        [input.challengeId, input.issuedAt],
+      );
+      await manager.query(
+        `
+          INSERT INTO password_reset_tokens
+            (user_id, challenge_id, token_hash, context_hash, expires_at, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          input.userId,
+          input.challengeId,
+          input.tokenHash,
+          input.contextHash,
+          input.expiresAt,
+          input.issuedAt,
+        ],
+      );
+      await this.insertRecoveryAudit(manager, {
+        ...input.audit,
+        userId: input.userId,
+        eventType: 'password_recovery.verified',
+      });
+      return true;
+    });
+  }
+
+  public async findPasswordResetToken(tokenHash: string): Promise<PasswordResetTokenRecord | null> {
+    const [row] = await this.dataSource.query<PasswordResetTokenRow[]>(
+      `
+        SELECT user_id, token_hash, context_hash, expires_at, consumed_at
+        FROM password_reset_tokens
+        WHERE token_hash = $1
+      `,
+      [tokenHash],
+    );
+    return row
+      ? {
+          userId: row.user_id,
+          tokenHash: row.token_hash,
+          contextHash: row.context_hash,
+          expiresAt: new Date(row.expires_at),
+          consumedAt: row.consumed_at ? new Date(row.consumed_at) : null,
+        }
+      : null;
+  }
+
+  public async resetPasswordWithToken(input: {
+    tokenHash: string;
+    contextHash: string;
+    passwordHash: string;
+    resetAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordResetResult> {
+    return this.dataSource.transaction(async (manager) => {
+      const [token] = await manager.query<PasswordResetTokenRow[]>(
+        `
+          SELECT user_id, token_hash, context_hash, expires_at, consumed_at
+          FROM password_reset_tokens
+          WHERE token_hash = $1
+          FOR UPDATE
+        `,
+        [input.tokenHash],
+      );
+      if (
+        !token ||
+        token.consumed_at ||
+        token.expires_at <= input.resetAt ||
+        token.context_hash !== input.contextHash
+      ) {
+        return 'invalid';
+      }
+      const updated: unknown = await manager.query(
+        `
+          UPDATE users
+          SET password_hash = $2
+          WHERE id = $1 AND status = 'active' AND password_hash IS NOT NULL AND deleted_at IS NULL
+          RETURNING id
+        `,
+        [token.user_id, input.passwordHash],
+      );
+      if (!this.updatedExactlyOneRow(updated)) {
+        return 'invalid';
+      }
+      await manager.query(
+        `UPDATE password_reset_tokens SET consumed_at = $2 WHERE token_hash = $1`,
+        [input.tokenHash, input.resetAt],
+      );
+      await manager.query(
+        `
+          UPDATE auth_sessions
+          SET revoked_at = $2, revoke_reason = 'password_reset'
+          WHERE user_id = $1 AND revoked_at IS NULL
+        `,
+        [token.user_id, input.resetAt],
+      );
+      await this.insertRecoveryAudit(manager, {
+        ...input.audit,
+        userId: token.user_id,
+        eventType: 'password_recovery.reset',
+      });
+      await this.insertRecoveryAudit(manager, {
+        ...input.audit,
+        userId: token.user_id,
+        eventType: 'password_recovery.sessions_revoked',
+      });
+      return 'reset';
+    });
+  }
+
+  public recordRecoveryAudit(input: RecoveryAuditInput): Promise<void> {
+    return this.insertRecoveryAudit(this.dataSource.manager, input);
   }
 
   public async createSession(session: NewSession): Promise<void> {
@@ -578,6 +748,27 @@ export class PostgresIdentityRepository extends IdentityRepository {
         session.expiresAt,
         session.ipAddress,
         session.userAgent,
+      ],
+    );
+  }
+
+  private async insertRecoveryAudit(
+    manager: EntityManager,
+    input: RecoveryAuditInput,
+  ): Promise<void> {
+    await manager.query(
+      `
+        INSERT INTO audit_logs
+          (category, event_type, subject_type, subject_id, ip_address, user_agent, data, occurred_at)
+        VALUES ('security', $1, 'user', $2, $3, $4, $5::jsonb, $6)
+      `,
+      [
+        input.eventType,
+        input.userId,
+        input.ipAddress,
+        input.userAgent,
+        JSON.stringify({ maskedEmail: input.maskedEmail, ...input.data }),
+        input.occurredAt,
       ],
     );
   }

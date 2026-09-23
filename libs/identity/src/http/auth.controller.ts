@@ -21,6 +21,9 @@ import {
   LoginDto,
   OtpRequestDto,
   OtpVerifyDto,
+  PasswordRecoveryRequestDto,
+  PasswordRecoveryResetDto,
+  PasswordRecoveryVerifyDto,
   RefreshTokenDto,
   RegisterDto,
   ResetPasswordDto,
@@ -72,6 +75,33 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   public login(@Body() input: LoginDto, @Req() request: Request): ReturnType<AuthService['login']> {
     return this.auth.login(input, this.context(request));
+  }
+
+  @Post('password/recovery/request')
+  @HttpCode(HttpStatus.ACCEPTED)
+  public requestPasswordRecovery(
+    @Body() input: PasswordRecoveryRequestDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['requestPasswordRecovery']> {
+    return this.auth.requestPasswordRecovery(input.email, this.context(request));
+  }
+
+  @Post('password/recovery/verify')
+  @HttpCode(HttpStatus.OK)
+  public verifyPasswordRecovery(
+    @Body() input: PasswordRecoveryVerifyDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['verifyPasswordRecovery']> {
+    return this.auth.verifyPasswordRecovery(input, this.context(request));
+  }
+
+  @Post('password/recovery/reset')
+  @HttpCode(HttpStatus.OK)
+  public completePasswordRecovery(
+    @Body() input: PasswordRecoveryResetDto,
+    @Req() request: Request,
+  ): ReturnType<AuthService['completePasswordRecovery']> {
+    return this.auth.completePasswordRecovery(input, this.context(request));
   }
 
   @Post('otp/request')

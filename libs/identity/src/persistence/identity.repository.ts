@@ -50,6 +50,26 @@ export interface OtpChallengeRecord {
   verifiedAt: Date | null;
 }
 
+export interface PasswordResetTokenRecord {
+  userId: string;
+  tokenHash: string;
+  contextHash: string;
+  expiresAt: Date;
+  consumedAt: Date | null;
+}
+
+export interface RecoveryAuditInput {
+  eventType: string;
+  userId: string | null;
+  maskedEmail: string;
+  occurredAt: Date;
+  ipAddress: string | null;
+  userAgent: string | null;
+  data?: Readonly<Record<string, unknown>>;
+}
+
+export type PasswordResetResult = 'reset' | 'invalid';
+
 export interface NewSession {
   id: string;
   familyId: string;
@@ -107,6 +127,29 @@ export abstract class IdentityRepository {
   public abstract markOtpVerified(challengeId: string, verifiedAt: Date): Promise<boolean>;
   public abstract consumeOtp(challengeId: string, consumedAt: Date): Promise<boolean>;
   public abstract cancelOtp(challengeId: string, consumedAt: Date): Promise<void>;
+
+  public abstract issuePasswordResetToken(input: {
+    challengeId: string;
+    userId: string;
+    email: string;
+    codeHash: string;
+    tokenHash: string;
+    contextHash: string;
+    expiresAt: Date;
+    issuedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<boolean>;
+  public abstract findPasswordResetToken(
+    tokenHash: string,
+  ): Promise<PasswordResetTokenRecord | null>;
+  public abstract resetPasswordWithToken(input: {
+    tokenHash: string;
+    contextHash: string;
+    passwordHash: string;
+    resetAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordResetResult>;
+  public abstract recordRecoveryAudit(input: RecoveryAuditInput): Promise<void>;
 
   public abstract createSession(session: NewSession): Promise<void>;
   public abstract rotateSession(input: {

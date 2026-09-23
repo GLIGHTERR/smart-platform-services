@@ -9,6 +9,9 @@ import {
   type NewSocialUser,
   type OtpChallengeRecord,
   type OtpPurpose,
+  type PasswordResetResult,
+  type PasswordResetTokenRecord,
+  type RecoveryAuditInput,
   type SessionRotationResult,
   type ThrottleBucket,
   type ThrottlePolicy,
@@ -22,8 +25,10 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   public readonly users = new Map<string, IdentityUser>();
   public readonly sessions = new Map<string, StoredSession>();
   private readonly otpChallenges = new Map<string, OtpChallengeRecord>();
+  private readonly passwordResetTokens = new Map<string, PasswordResetTokenRecord>();
   private readonly throttles = new Map<string, ThrottleBucket>();
   private readonly socialUsers = new Map<string, string>();
+  public readonly recoveryAudits: RecoveryAuditInput[] = [];
 
   public async findByPhone(phone: string): Promise<IdentityUser | null> {
     return [...this.users.values()].find((user) => user.phone === phone) ?? null;
@@ -176,9 +181,11 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   public async recordOtpFailure(challengeId: string): Promise<void> {
     const challenge = this.otpChallenges.get(challengeId);
     if (challenge) {
+      const attemptCount = challenge.attemptCount + 1;
       this.otpChallenges.set(challengeId, {
         ...challenge,
-        attemptCount: challenge.attemptCount + 1,
+        attemptCount,
+        consumedAt: attemptCount >= challenge.maxAttempts ? new Date() : challenge.consumedAt,
       });
     }
   }
@@ -220,6 +227,94 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     if (challenge) {
       this.otpChallenges.set(challengeId, { ...challenge, consumedAt });
     }
+  }
+
+  public async issuePasswordResetToken(input: {
+    challengeId: string;
+    userId: string;
+    email: string;
+    codeHash: string;
+    tokenHash: string;
+    contextHash: string;
+    expiresAt: Date;
+    issuedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<boolean> {
+    const challenge = this.otpChallenges.get(input.challengeId);
+    const user = this.users.get(input.userId);
+    if (
+      !challenge ||
+      challenge.email !== input.email ||
+      challenge.purpose !== 'password_reset' ||
+      challenge.codeHash !== input.codeHash ||
+      challenge.consumedAt ||
+      challenge.verifiedAt ||
+      challenge.expiresAt <= input.issuedAt ||
+      challenge.attemptCount >= challenge.maxAttempts ||
+      !user ||
+      user.email?.toLowerCase() !== input.email.toLowerCase() ||
+      user.status !== 'active' ||
+      !user.passwordHash ||
+      [...this.passwordResetTokens.values()].some((token) => token.tokenHash === input.tokenHash)
+    ) {
+      return false;
+    }
+    this.otpChallenges.set(challenge.id, {
+      ...challenge,
+      verifiedAt: input.issuedAt,
+      consumedAt: input.issuedAt,
+    });
+    this.passwordResetTokens.set(input.tokenHash, {
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      contextHash: input.contextHash,
+      expiresAt: input.expiresAt,
+      consumedAt: null,
+    });
+    this.recoveryAudits.push({
+      ...input.audit,
+      userId: input.userId,
+      eventType: 'password_recovery.verified',
+    });
+    return true;
+  }
+
+  public async findPasswordResetToken(tokenHash: string): Promise<PasswordResetTokenRecord | null> {
+    return this.passwordResetTokens.get(tokenHash) ?? null;
+  }
+
+  public async resetPasswordWithToken(input: {
+    tokenHash: string;
+    contextHash: string;
+    passwordHash: string;
+    resetAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordResetResult> {
+    const token = this.passwordResetTokens.get(input.tokenHash);
+    const user = token ? this.users.get(token.userId) : null;
+    if (
+      !token ||
+      token.consumedAt ||
+      token.expiresAt <= input.resetAt ||
+      token.contextHash !== input.contextHash ||
+      !user ||
+      user.status !== 'active' ||
+      !user.passwordHash
+    ) {
+      return 'invalid';
+    }
+    this.users.set(user.id, { ...user, passwordHash: input.passwordHash });
+    this.passwordResetTokens.set(input.tokenHash, { ...token, consumedAt: input.resetAt });
+    await this.revokeSessionsForUser(user.id, input.resetAt, 'password_reset');
+    this.recoveryAudits.push(
+      { ...input.audit, userId: user.id, eventType: 'password_recovery.reset' },
+      { ...input.audit, userId: user.id, eventType: 'password_recovery.sessions_revoked' },
+    );
+    return 'reset';
+  }
+
+  public async recordRecoveryAudit(input: RecoveryAuditInput): Promise<void> {
+    this.recoveryAudits.push(input);
   }
 
   public async createSession(session: NewSession): Promise<void> {
@@ -268,7 +363,12 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     );
   }
 
-  public async revokeSessionByTokenHash(tokenHash: string, revokedAt: Date): Promise<void> {
+  public async revokeSessionByTokenHash(
+    tokenHash: string,
+    revokedAt: Date,
+    _reason?: string,
+  ): Promise<void> {
+    void _reason;
     for (const [sessionId, session] of this.sessions) {
       if (session.refreshTokenHash === tokenHash && !session.revokedAt) {
         this.sessions.set(sessionId, { ...session, revokedAt });
@@ -276,7 +376,12 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     }
   }
 
-  public async revokeSessionsForUser(userId: string, revokedAt: Date): Promise<void> {
+  public async revokeSessionsForUser(
+    userId: string,
+    revokedAt: Date,
+    _reason?: string,
+  ): Promise<void> {
+    void _reason;
     for (const [sessionId, session] of this.sessions) {
       if (session.userId === userId && !session.revokedAt) {
         this.sessions.set(sessionId, { ...session, revokedAt });

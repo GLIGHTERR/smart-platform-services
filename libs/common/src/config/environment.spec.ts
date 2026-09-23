@@ -78,4 +78,50 @@ describe('environment configuration', () => {
       }
     }
   });
+
+  it('loads explicit UC-03 recovery policy overrides', () => {
+    const overrides = {
+      PASSWORD_RECOVERY_EMAIL_LIMIT: '7',
+      PASSWORD_RECOVERY_EMAIL_WINDOW_SECONDS: '1200',
+      PASSWORD_RECOVERY_IP_LIMIT: '30',
+      PASSWORD_RECOVERY_IP_WINDOW_SECONDS: '7200',
+      PASSWORD_RECOVERY_DEVICE_LIMIT: '25',
+      RESET_TOKEN_TTL_SECONDS: '480',
+    };
+    const original = Object.fromEntries(
+      Object.keys(overrides).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, overrides);
+
+    try {
+      const result = configuration() as {
+        auth: {
+          passwordRecoveryEmailLimit: number;
+          passwordRecoveryEmailWindowSeconds: number;
+          passwordRecoveryIpLimit: number;
+          passwordRecoveryIpWindowSeconds: number;
+          passwordRecoveryDeviceLimit: number;
+          resetTokenTtlSeconds: number;
+        };
+      };
+      expect(result.auth).toEqual(
+        expect.objectContaining({
+          passwordRecoveryEmailLimit: 7,
+          passwordRecoveryEmailWindowSeconds: 1200,
+          passwordRecoveryIpLimit: 30,
+          passwordRecoveryIpWindowSeconds: 7200,
+          passwordRecoveryDeviceLimit: 25,
+          resetTokenTtlSeconds: 480,
+        }),
+      );
+    } finally {
+      for (const [key, value] of Object.entries(original)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
 });
