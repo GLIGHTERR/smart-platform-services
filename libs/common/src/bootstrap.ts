@@ -2,6 +2,8 @@ import { ValidationPipe, type Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+import { DataSource } from 'typeorm';
+import { runStartupMigrations } from './database/startup-migrations';
 import { ApiExceptionFilter } from './http/api-exception.filter';
 import { HttpLoggingInterceptor } from './http/http-logging.interceptor';
 import { requestIdMiddleware } from './http/request-id.middleware';
@@ -21,6 +23,7 @@ export async function bootstrapApi(
   const logger = app.get(JsonLoggerService);
 
   app.useLogger(logger);
+  await runStartupMigrations(config, app.get(DataSource), logger);
   app.use(helmet());
   app.use(requestIdMiddleware);
   app.enableCors({

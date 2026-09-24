@@ -22,6 +22,28 @@ describe('environment configuration', () => {
     expect(result.RENTER_API_PORT).toBe(3101);
     expect(result.DATABASE_SSL).toBe(true);
     expect(result.DATABASE_POOL_SIZE).toBe(10);
+    expect(result.DATABASE_RUN_MIGRATIONS_ON_STARTUP).toBe(false);
+  });
+
+  it('loads startup migration and Render revision settings', () => {
+    const originalFlag = process.env.DATABASE_RUN_MIGRATIONS_ON_STARTUP;
+    const originalRevision = process.env.RENDER_GIT_COMMIT;
+    process.env.DATABASE_RUN_MIGRATIONS_ON_STARTUP = 'true';
+    process.env.RENDER_GIT_COMMIT = 'abc123';
+
+    try {
+      const result = configuration() as {
+        app: { buildRevision?: string };
+        database: { runMigrationsOnStartup: boolean };
+      };
+      expect(result.app.buildRevision).toBe('abc123');
+      expect(result.database.runMigrationsOnStartup).toBe(true);
+    } finally {
+      if (originalFlag === undefined) delete process.env.DATABASE_RUN_MIGRATIONS_ON_STARTUP;
+      else process.env.DATABASE_RUN_MIGRATIONS_ON_STARTUP = originalFlag;
+      if (originalRevision === undefined) delete process.env.RENDER_GIT_COMMIT;
+      else process.env.RENDER_GIT_COMMIT = originalRevision;
+    }
   });
 
   it('reports all missing required values', () => {
