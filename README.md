@@ -33,10 +33,28 @@ npm run db:verify
 npm run start:renter
 ```
 
-Use a local-only database password in `.env`; never commit real credentials. Migrations run
-separately from application startup so releases can apply and verify schema changes before
-new processes receive traffic. `db:seed` is idempotent and safely updates the three base role
+Use a local-only database password in `.env`; never commit real credentials. By default, migrations
+run separately from application startup so releases can apply and verify schema changes before new
+processes receive traffic. `db:seed` is idempotent and safely updates the three base role
 descriptions on repeated runs.
+
+## Review deployment migrations
+
+`DATABASE_RUN_MIGRATIONS_ON_STARTUP` defaults to `false`. The current single-instance Render review
+service may set it to `true`; the API then runs every pending migration recorded outside
+`platform_migrations` before opening its HTTP listener. Migration classes are bundled into the
+production application, so this path does not require TypeScript sources, `ts-node`, development
+dependencies, or a separate database credential handoff. A migration failure terminates bootstrap
+and fails the deploy instead of serving traffic against an old schema.
+
+Startup logs report disabled, pending, applied, no-pending, or failed status and include
+`RENDER_GIT_COMMIT` when Render provides it. They never include database credentials or auth
+secrets. After deploying, verify the `platform_migrations` ledger, expected tables/indexes, and API
+health before enabling downstream QA.
+
+This startup mode is limited to the current review/single-instance deployment. Before production
+uses multiple instances, move migrations to a dedicated release/migration job and keep
+`DATABASE_RUN_MIGRATIONS_ON_STARTUP=false` on every application instance.
 
 ## Health endpoints
 

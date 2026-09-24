@@ -17,6 +17,8 @@ const environmentSchema = Joi.object({
   DATABASE_SSL: Joi.boolean().truthy('true').falsy('false').default(false),
   DATABASE_SSL_REJECT_UNAUTHORIZED: Joi.boolean().truthy('true').falsy('false').default(true),
   DATABASE_POOL_SIZE: Joi.number().integer().min(1).max(100).default(10),
+  DATABASE_RUN_MIGRATIONS_ON_STARTUP: Joi.boolean().truthy('true').falsy('false').default(false),
+  RENDER_GIT_COMMIT: Joi.string().empty('').optional(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
   JWT_ISSUER: Joi.string().min(3).default('smart-platform-services'),
@@ -85,6 +87,7 @@ export function configuration(): Record<string, unknown> {
         owner: Number(process.env.OWNER_API_PORT ?? 3002),
         admin: Number(process.env.ADMIN_API_PORT ?? 3003),
       },
+      buildRevision: process.env.RENDER_GIT_COMMIT || undefined,
     },
     database: {
       host: process.env.DATABASE_HOST,
@@ -95,6 +98,7 @@ export function configuration(): Record<string, unknown> {
       ssl: process.env.DATABASE_SSL === 'true',
       sslRejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
       poolSize: Number(process.env.DATABASE_POOL_SIZE ?? 10),
+      runMigrationsOnStartup: process.env.DATABASE_RUN_MIGRATIONS_ON_STARTUP === 'true',
     },
     auth: {
       jwtAccessSecret: process.env.JWT_ACCESS_SECRET,
