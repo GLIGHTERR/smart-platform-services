@@ -38,7 +38,32 @@ describe('PasswordRecoveryOutboxService', () => {
 
     expect(sendOtp).toHaveBeenCalledWith(expect.objectContaining({ code: '123456' }));
     expect(query.mock.calls.map(([sql]) => String(sql)).join('\n')).not.toContain('123456');
+    expect(query.mock.calls[0]?.[0]).toContain('claimed AS');
+    expect(query.mock.calls[0]?.[0]).toContain(
+      'SELECT id, aggregate_id, payload, attempt_count, created_at FROM claimed',
+    );
     expect(query.mock.calls.at(-1)?.[0]).toContain('published_at = now()');
+  });
+
+  it('quarantines a malformed job instead of crashing the API process', async () => {
+    const { service, query, sendOtp } = createHarness();
+    query
+      .mockResolvedValueOnce([
+        {
+          id: 'job-invalid',
+          aggregate_id: 'challenge-1',
+          payload: undefined,
+          attempt_count: 0,
+          created_at: new Date(),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.drain()).resolves.toBeUndefined();
+
+    expect(sendOtp).not.toHaveBeenCalled();
+    expect(query.mock.calls.at(-1)?.[0]).toContain('published_at = now()');
+    expect(query.mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining(['invalid_payload']));
   });
 
   it('marks a replaced or expired challenge as stale without sending', async () => {
