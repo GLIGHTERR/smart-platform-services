@@ -35,6 +35,7 @@ describe('createDatabaseOptions', () => {
       'IdentityAuthSchema1700000001000',
       'EmailIdentityAuth1700000002000',
       'PasswordRecovery1700000003000',
+      'PasswordRecoveryOutbox1700000004000',
     ]);
   });
 
