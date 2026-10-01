@@ -11,6 +11,7 @@ import { NotificationModule } from '@platform/notification';
 import { PaymentModule } from '@platform/payment';
 import { PropertyModule } from '@platform/property';
 import { WorkerLifecycleService } from './worker-lifecycle.service';
+import { PasswordRecoveryOutboxService } from './password-recovery-outbox.service';
 
 @Module({
   imports: [
@@ -26,6 +27,6 @@ import { WorkerLifecycleService } from './worker-lifecycle.service';
     NotificationModule,
     MediaModule,
   ],
-  providers: [WorkerLifecycleService],
+  providers: [WorkerLifecycleService, PasswordRecoveryOutboxService],
 })
 export class WorkerModule {}

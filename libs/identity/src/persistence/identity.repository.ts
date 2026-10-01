@@ -68,6 +68,13 @@ export interface RecoveryAuditInput {
   data?: Readonly<Record<string, unknown>>;
 }
 
+export interface PasswordRecoveryOutboxInput {
+  id: string;
+  challengeId: string;
+  email: string;
+  occurredAt: Date;
+}
+
 export type PasswordResetResult = 'reset' | 'invalid';
 
 export interface NewSession {
@@ -118,6 +125,15 @@ export abstract class IdentityRepository {
     maxAttempts: number;
     expiresAt: Date;
     requestedIp: string | null;
+  }): Promise<void>;
+  public abstract replacePasswordRecoveryChallenge(input: {
+    id: string;
+    email: string;
+    codeHash: string;
+    maxAttempts: number;
+    expiresAt: Date;
+    requestedIp: string | null;
+    outbox: PasswordRecoveryOutboxInput | null;
   }): Promise<void>;
   public abstract findOtpChallenge(
     recipient: { email: string } | { phone: string },

@@ -19,6 +19,7 @@ import { PasswordHasherService } from './security/password-hasher.service';
 import { RateLimiterService } from './security/rate-limiter.service';
 import { RolesGuard } from './security/roles.guard';
 import { AuthService } from './services/auth.service';
+import { RecoveryOtpCodeService } from './services/recovery-otp-code.service';
 import {
   DefaultIdentityAccessService,
   DefaultIdentityQueryService,
@@ -39,6 +40,7 @@ import {
     JwtAuthGuard,
     RolesGuard,
     AuthService,
+    RecoveryOtpCodeService,
   ],
   exports: [
     IdentityQueryService,
@@ -46,6 +48,7 @@ import {
     JwtSessionService,
     JwtAuthGuard,
     RolesGuard,
+    RecoveryOtpCodeService,
   ],
 })
 export class IdentityModule {}

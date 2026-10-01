@@ -12,6 +12,7 @@ import {
   type PasswordResetResult,
   type PasswordResetTokenRecord,
   type RecoveryAuditInput,
+  type PasswordRecoveryOutboxInput,
   type SessionRotationResult,
   type ThrottleBucket,
   type ThrottlePolicy,
@@ -29,6 +30,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   private readonly throttles = new Map<string, ThrottleBucket>();
   private readonly socialUsers = new Map<string, string>();
   public readonly recoveryAudits: RecoveryAuditInput[] = [];
+  public readonly recoveryOutbox: PasswordRecoveryOutboxInput[] = [];
 
   public async findByPhone(phone: string): Promise<IdentityUser | null> {
     return [...this.users.values()].find((user) => user.phone === phone) ?? null;
@@ -134,6 +136,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     codeHash: string;
     maxAttempts: number;
     expiresAt: Date;
+    requestedIp?: string | null;
   }): Promise<void> {
     for (const [key, challenge] of this.otpChallenges) {
       if (
@@ -158,6 +161,30 @@ export class InMemoryIdentityRepository extends IdentityRepository {
       createdAt: new Date(),
       verifiedAt: null,
     });
+  }
+
+  public async replacePasswordRecoveryChallenge(input: {
+    id: string;
+    email: string;
+    codeHash: string;
+    maxAttempts: number;
+    expiresAt: Date;
+    requestedIp: string | null;
+    outbox: PasswordRecoveryOutboxInput | null;
+  }): Promise<void> {
+    await this.replaceOtpChallenge({
+      id: input.id,
+      email: input.email,
+      phone: null,
+      purpose: 'password_reset',
+      codeHash: input.codeHash,
+      maxAttempts: input.maxAttempts,
+      expiresAt: input.expiresAt,
+      requestedIp: input.requestedIp,
+    });
+    if (input.outbox) {
+      this.recoveryOutbox.push(input.outbox);
+    }
   }
 
   public async findOtpChallenge(

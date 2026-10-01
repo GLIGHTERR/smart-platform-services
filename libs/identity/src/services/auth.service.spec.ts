@@ -21,6 +21,7 @@ import { JwtSessionService, type SessionClientContext } from '../security/jwt-se
 import { PasswordHasherService } from '../security/password-hasher.service';
 import { RateLimiterService } from '../security/rate-limiter.service';
 import { AuthService } from './auth.service';
+import { RecoveryOtpCodeService } from './recovery-otp-code.service';
 
 class CapturingEmailDelivery extends EmailDeliveryPort {
   public readonly messages: EmailOtpMessage[] = [];
@@ -81,6 +82,7 @@ describe('AuthService email identity flows', () => {
     socialVerifier: FakeSocialVerifier;
     sessions: JwtSessionService;
     passwords: PasswordHasherService;
+    recoveryOtpCodes: RecoveryOtpCodeService;
   } {
     const config = new ConfigService({
       auth: {
@@ -115,6 +117,7 @@ describe('AuthService email identity flows', () => {
     const emailDelivery = new CapturingEmailDelivery();
     const phoneDelivery = new CapturingPhoneDelivery();
     const socialVerifier = new FakeSocialVerifier();
+    const recoveryOtpCodes = new RecoveryOtpCodeService(config);
     const auth = new AuthService(
       config,
       repository,
@@ -122,6 +125,7 @@ describe('AuthService email identity flows', () => {
       sessions,
       new RateLimiterService(repository, config),
       emailDelivery,
+      recoveryOtpCodes,
       phoneDelivery,
       socialVerifier,
     );
@@ -133,6 +137,7 @@ describe('AuthService email identity flows', () => {
       socialVerifier,
       sessions,
       passwords,
+      recoveryOtpCodes,
     };
   }
 
@@ -432,19 +437,20 @@ describe('AuthService email identity flows', () => {
       expiresInSeconds: 600,
       resendAfterSeconds: 60,
     });
-    expect(eligible.emailDelivery.messages).toEqual([
-      expect.objectContaining({ email: 'user@example.com', purpose: 'password_reset' }),
+    expect(eligible.emailDelivery.messages).toHaveLength(0);
+    expect(eligible.repository.recoveryOutbox).toEqual([
+      expect.objectContaining({ challengeId: accepted.challengeId, email: 'user@example.com' }),
     ]);
     expect(eligible.repository.recoveryAudits).toEqual([
       expect.objectContaining({
         eventType: 'password_recovery.requested',
         userId: user.id,
         maskedEmail: 'us**@example.com',
-        data: { outcome: 'sent' },
+        data: { outcome: 'queued' },
       }),
     ]);
     expect(JSON.stringify(eligible.repository.recoveryAudits)).not.toContain(
-      eligible.emailDelivery.messages[0]?.code ?? 'unreachable',
+      eligible.recoveryOtpCodes.forChallenge(accepted.challengeId),
     );
 
     for (const configure of [
@@ -486,7 +492,7 @@ describe('AuthService email identity flows', () => {
     const first = await harness.auth.requestPasswordRecovery('user@example.com', context);
     const immediate = await harness.auth.requestPasswordRecovery('user@example.com', context);
     expect(immediate.challengeId).toBe(first.challengeId);
-    expect(harness.emailDelivery.messages).toHaveLength(1);
+    expect(harness.repository.recoveryOutbox).toHaveLength(1);
 
     jest.advanceTimersByTime(61_000);
     const replacement = await harness.auth.requestPasswordRecovery('user@example.com', context);
@@ -496,7 +502,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'user@example.com',
           challengeId: first.challengeId,
-          code: harness.emailDelivery.messages[0]?.code ?? '',
+          code: harness.recoveryOtpCodes.forChallenge(first.challengeId),
         },
         context,
       ),
@@ -513,7 +519,6 @@ describe('AuthService email identity flows', () => {
       email: 'other@example.com',
       passwordHash: await deliveryFailure.passwords.hash('Secure1!'),
     });
-    deliveryFailure.emailDelivery.sendFailure = new Error('brevo unavailable');
     const failedDelivery = await deliveryFailure.auth.requestPasswordRecovery(
       'other@example.com',
       context,
@@ -537,6 +542,26 @@ describe('AuthService email identity flows', () => {
     ).toEqual(expect.objectContaining({ id: expect.any(String) }));
   });
 
+  it('accepts recovery before a slow email provider can run', async () => {
+    const harness = createHarness();
+    harness.repository.addActiveUser({
+      email: 'user@example.com',
+      passwordHash: await harness.passwords.hash('Secure1!'),
+    });
+    harness.emailDelivery.sendOtp = jest.fn(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    );
+
+    const response = await Promise.race([
+      harness.auth.requestPasswordRecovery('user@example.com', context),
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('request waited')), 50)),
+    ]);
+
+    expect(response.accepted).toBe(true);
+    expect(harness.emailDelivery.sendOtp).not.toHaveBeenCalled();
+    expect(harness.repository.recoveryOutbox).toHaveLength(1);
+  });
+
   it('issues a context-bound one-time reset token and cancels OTP after five failures', async () => {
     jest.useFakeTimers({ now: new Date('2026-09-23T00:00:00Z') });
     const harness = createHarness();
@@ -558,7 +583,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'user@example.com',
           challengeId: requested.challengeId,
-          code: harness.emailDelivery.messages[0]?.code ?? '',
+          code: harness.recoveryOtpCodes.forChallenge(requested.challengeId),
         },
         context,
       ),
@@ -574,7 +599,7 @@ describe('AuthService email identity flows', () => {
       {
         email: 'user@example.com',
         challengeId: valid.challengeId,
-        code: validHarness.emailDelivery.messages.at(-1)?.code ?? '',
+        code: validHarness.recoveryOtpCodes.forChallenge(valid.challengeId),
       },
       context,
     );
@@ -591,7 +616,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'user@example.com',
           challengeId: valid.challengeId,
-          code: validHarness.emailDelivery.messages.at(-1)?.code ?? '',
+          code: validHarness.recoveryOtpCodes.forChallenge(valid.challengeId),
         },
         context,
       ),
@@ -617,7 +642,7 @@ describe('AuthService email identity flows', () => {
       {
         email: 'user@example.com',
         challengeId: requested.challengeId,
-        code: harness.emailDelivery.messages[0]?.code ?? '',
+        code: harness.recoveryOtpCodes.forChallenge(requested.challengeId),
       },
       context,
     );
@@ -679,7 +704,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'user@example.com',
           challengeId: requested.challengeId,
-          code: harness.emailDelivery.messages[0]?.code ?? '',
+          code: harness.recoveryOtpCodes.forChallenge(requested.challengeId),
         },
         context,
       );
@@ -776,7 +801,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'user@example.com',
           challengeId: racedRequest.challengeId,
-          code: issueRace.emailDelivery.messages[0]?.code ?? '',
+          code: issueRace.recoveryOtpCodes.forChallenge(racedRequest.challengeId),
         },
         context,
       ),
@@ -792,7 +817,7 @@ describe('AuthService email identity flows', () => {
       {
         email: 'user@example.com',
         challengeId: request.challengeId,
-        code: missingUser.emailDelivery.messages[0]?.code ?? '',
+        code: missingUser.recoveryOtpCodes.forChallenge(request.challengeId),
       },
       context,
     );

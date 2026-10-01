@@ -34,6 +34,7 @@ import type {
 import { JwtSessionService, type SessionClientContext } from '../security/jwt-session.service';
 import { PasswordHasherService } from '../security/password-hasher.service';
 import { RateLimiterService, type ThrottleKey } from '../security/rate-limiter.service';
+import { RecoveryOtpCodeService } from './recovery-otp-code.service';
 
 export interface OtpAcceptedResponse {
   accepted: true;
@@ -108,6 +109,7 @@ export class AuthService {
     private readonly sessions: JwtSessionService,
     private readonly rateLimiter: RateLimiterService,
     private readonly emailDelivery: EmailDeliveryPort,
+    private readonly recoveryOtpCodes: RecoveryOtpCodeService,
     private readonly otpDelivery: OtpDeliveryPort,
     private readonly socialVerifier: SocialIdentityVerifier,
   ) {
@@ -294,7 +296,6 @@ export class AuthService {
     const keys = this.passwordRecoveryRequestKeys(email, context);
     await this.rateLimiter.assertAllowed(keys, now);
     await this.rateLimiter.recordFailure(keys, now);
-    await this.emailDelivery.assertAvailable();
 
     const [user, current] = await Promise.all([
       this.repository.findByEmail(email),
@@ -319,17 +320,18 @@ export class AuthService {
       }
     }
 
-    const code = randomInt(100_000, 1_000_000).toString();
     const challengeId = randomUUID();
-    await this.repository.replaceOtpChallenge({
+    const code = this.recoveryOtpCodes.forChallenge(challengeId);
+    await this.repository.replacePasswordRecoveryChallenge({
       id: challengeId,
       email,
-      phone: null,
-      purpose: 'password_reset',
       codeHash: this.hashOtp(email, 'password_reset', code),
       maxAttempts: this.otpMaxAttempts,
       expiresAt: new Date(now.getTime() + this.otpTtlSeconds * 1000),
       requestedIp: context.ipAddress,
+      outbox: eligible
+        ? { id: randomUUID(), challengeId, email, occurredAt: now }
+        : null,
     });
     if (!eligible) {
       await this.auditRecovery('password_recovery.requested', null, email, context, now, {
@@ -337,26 +339,14 @@ export class AuthService {
       });
       return this.passwordRecoveryAccepted(challengeId);
     }
-    try {
-      await this.emailDelivery.sendOtp({
-        email,
-        purpose: 'password_reset',
-        code,
-        expiresInSeconds: this.otpTtlSeconds,
-      });
-      await this.auditRecovery(
-        current ? 'password_recovery.resent' : 'password_recovery.requested',
-        user.id,
-        email,
-        context,
-        now,
-        { outcome: 'sent' },
-      );
-    } catch {
-      await this.auditRecovery('password_recovery.delivery_failed', user.id, email, context, now, {
-        outcome: 'accepted',
-      });
-    }
+    await this.auditRecovery(
+      current ? 'password_recovery.resent' : 'password_recovery.requested',
+      user.id,
+      email,
+      context,
+      now,
+      { outcome: 'queued' },
+    );
     return this.passwordRecoveryAccepted(challengeId);
   }
 
