@@ -77,6 +77,8 @@ JWT and OTP secrets are required and must contain at least 32 characters. Policy
 - `EMAIL_DELIVERY_MODE=disabled|console|brevo`
 - `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` and `BREVO_SENDER_NAME` are required when
   `EMAIL_DELIVERY_MODE=brevo`. Store the API key only in the deployment secret store.
+- `PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED=false`; set it to `true` only for the current
+  single-instance renter API review deployment. Production uses the dedicated worker entrypoint.
 - `LEGACY_PHONE_FLOWS_ENABLED=false`
 
 The machine-readable contract is [OpenAPI](openapi.yaml).

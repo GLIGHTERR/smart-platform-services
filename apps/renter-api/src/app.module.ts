@@ -4,7 +4,7 @@ import { BillingModule } from '@platform/billing';
 import { BookingModule } from '@platform/booking';
 import { HealthModule, PlatformCoreModule } from '@platform/common';
 import { ContractModule } from '@platform/contract';
-import { IdentityModule } from '@platform/identity';
+import { IdentityModule, PasswordRecoveryOutboxService } from '@platform/identity';
 import { MaintenanceModule } from '@platform/maintenance';
 import { MediaModule } from '@platform/media';
 import { NotificationModule } from '@platform/notification';
@@ -29,5 +29,9 @@ import { ListingsController } from './listings.controller';
     MediaModule,
   ],
   controllers: [RenterSessionController, ListingsController],
+  providers:
+    process.env.PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED === 'true'
+      ? [PasswordRecoveryOutboxService]
+      : [],
 })
 export class RenterApiModule {}

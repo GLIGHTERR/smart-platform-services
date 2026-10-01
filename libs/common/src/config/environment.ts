@@ -18,6 +18,10 @@ const environmentSchema = Joi.object({
   DATABASE_SSL_REJECT_UNAUTHORIZED: Joi.boolean().truthy('true').falsy('false').default(true),
   DATABASE_POOL_SIZE: Joi.number().integer().min(1).max(100).default(10),
   DATABASE_RUN_MIGRATIONS_ON_STARTUP: Joi.boolean().truthy('true').falsy('false').default(false),
+  PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .default(false),
   RENDER_GIT_COMMIT: Joi.string().empty('').optional(),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),

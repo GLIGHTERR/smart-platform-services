@@ -1,9 +1,13 @@
 import type { DataSource } from 'typeorm';
 import type { EmailDeliveryPort } from '../../../libs/identity/src/providers/otp-delivery.port';
-import { PasswordRecoveryOutboxService } from './password-recovery-outbox.service';
+import { PasswordRecoveryOutboxService } from '../../../libs/identity/src/services/password-recovery-outbox.service';
 
 describe('PasswordRecoveryOutboxService', () => {
-  function createHarness(): { service: PasswordRecoveryOutboxService; query: jest.Mock; sendOtp: jest.Mock } {
+  function createHarness(): {
+    service: PasswordRecoveryOutboxService;
+    query: jest.Mock;
+    sendOtp: jest.Mock;
+  } {
     const query = jest.fn();
     const sendOtp = jest.fn().mockResolvedValue(undefined);
     const service = new PasswordRecoveryOutboxService(
@@ -19,7 +23,13 @@ describe('PasswordRecoveryOutboxService', () => {
     const { service, query, sendOtp } = createHarness();
     query
       .mockResolvedValueOnce([
-        { id: 'job-1', aggregate_id: 'challenge-1', payload: { challengeId: 'challenge-1', email: 'user@example.com' }, attempt_count: 0, created_at: new Date() },
+        {
+          id: 'job-1',
+          aggregate_id: 'challenge-1',
+          payload: { challengeId: 'challenge-1', email: 'user@example.com' },
+          attempt_count: 0,
+          created_at: new Date(),
+        },
       ])
       .mockResolvedValueOnce([{ id: 'challenge-1', expires_at: new Date(Date.now() + 60_000) }])
       .mockResolvedValueOnce([]);
@@ -33,9 +43,18 @@ describe('PasswordRecoveryOutboxService', () => {
 
   it('marks a replaced or expired challenge as stale without sending', async () => {
     const { service, query, sendOtp } = createHarness();
-    query.mockResolvedValueOnce([
-      { id: 'job-1', aggregate_id: 'challenge-1', payload: { challengeId: 'challenge-1', email: 'user@example.com' }, attempt_count: 0, created_at: new Date() },
-    ]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    query
+      .mockResolvedValueOnce([
+        {
+          id: 'job-1',
+          aggregate_id: 'challenge-1',
+          payload: { challengeId: 'challenge-1', email: 'user@example.com' },
+          attempt_count: 0,
+          created_at: new Date(),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     await service.drain();
 
@@ -48,7 +67,13 @@ describe('PasswordRecoveryOutboxService', () => {
     sendOtp.mockRejectedValueOnce(new Error('provider unavailable'));
     query
       .mockResolvedValueOnce([
-        { id: 'job-1', aggregate_id: 'challenge-1', payload: { challengeId: 'challenge-1', email: 'user@example.com' }, attempt_count: 2, created_at: new Date() },
+        {
+          id: 'job-1',
+          aggregate_id: 'challenge-1',
+          payload: { challengeId: 'challenge-1', email: 'user@example.com' },
+          attempt_count: 2,
+          created_at: new Date(),
+        },
       ])
       .mockResolvedValueOnce([{ id: 'challenge-1', expires_at: new Date(Date.now() + 60_000) }])
       .mockResolvedValueOnce([]);
@@ -56,6 +81,8 @@ describe('PasswordRecoveryOutboxService', () => {
     await service.drain();
 
     expect(query.mock.calls.at(-1)?.[0]).toContain('attempt_count = attempt_count + 1');
-    expect(query.mock.calls.at(-1)?.[1]).toEqual(expect.arrayContaining([8, 'provider unavailable']));
+    expect(query.mock.calls.at(-1)?.[1]).toEqual(
+      expect.arrayContaining([8, 'provider unavailable']),
+    );
   });
 });

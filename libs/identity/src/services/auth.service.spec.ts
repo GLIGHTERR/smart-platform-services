@@ -554,7 +554,9 @@ describe('AuthService email identity flows', () => {
 
     const response = await Promise.race([
       harness.auth.requestPasswordRecovery('user@example.com', context),
-      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('request waited')), 50)),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('request waited')), 50),
+      ),
     ]);
 
     expect(response.accepted).toBe(true);

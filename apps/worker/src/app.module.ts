@@ -4,14 +4,13 @@ import { BillingModule } from '@platform/billing';
 import { BookingModule } from '@platform/booking';
 import { PlatformCoreModule } from '@platform/common';
 import { ContractModule } from '@platform/contract';
-import { IdentityModule } from '@platform/identity';
+import { IdentityModule, PasswordRecoveryOutboxService } from '@platform/identity';
 import { MaintenanceModule } from '@platform/maintenance';
 import { MediaModule } from '@platform/media';
 import { NotificationModule } from '@platform/notification';
 import { PaymentModule } from '@platform/payment';
 import { PropertyModule } from '@platform/property';
 import { WorkerLifecycleService } from './worker-lifecycle.service';
-import { PasswordRecoveryOutboxService } from './password-recovery-outbox.service';
 
 @Module({
   imports: [

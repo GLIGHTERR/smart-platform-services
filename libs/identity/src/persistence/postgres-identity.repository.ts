@@ -305,7 +305,14 @@ export class PostgresIdentityRepository extends IdentityRepository {
       await manager.query(
         `INSERT INTO otp_challenges (id, email, phone, purpose, code_hash, max_attempts, expires_at, requested_ip)
          VALUES ($1, $2, NULL, 'password_reset', $3, $4, $5, $6)`,
-        [input.id, input.email, input.codeHash, input.maxAttempts, input.expiresAt, input.requestedIp],
+        [
+          input.id,
+          input.email,
+          input.codeHash,
+          input.maxAttempts,
+          input.expiresAt,
+          input.requestedIp,
+        ],
       );
       if (input.outbox) {
         await manager.query(

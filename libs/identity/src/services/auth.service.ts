@@ -329,9 +329,7 @@ export class AuthService {
       maxAttempts: this.otpMaxAttempts,
       expiresAt: new Date(now.getTime() + this.otpTtlSeconds * 1000),
       requestedIp: context.ipAddress,
-      outbox: eligible
-        ? { id: randomUUID(), challengeId, email, occurredAt: now }
-        : null,
+      outbox: eligible ? { id: randomUUID(), challengeId, email, occurredAt: now } : null,
     });
     if (!eligible) {
       await this.auditRecovery('password_recovery.requested', null, email, context, now, {

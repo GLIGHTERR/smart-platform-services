@@ -1,10 +1,10 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { JsonLoggerService } from '../../../libs/common/src/logging/json-logger.service';
-import { EmailDeliveryPort } from '../../../libs/identity/src/providers/otp-delivery.port';
-import { RecoveryOtpCodeService } from '../../../libs/identity/src/services/recovery-otp-code.service';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
+import { JsonLoggerService } from '../../../common/src/logging/json-logger.service';
+import { EmailDeliveryPort } from '../providers/otp-delivery.port';
+import { RecoveryOtpCodeService } from './recovery-otp-code.service';
 
 interface ClaimedJob {
   id: string;
@@ -71,18 +71,42 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
         email: job.payload.email,
         purpose: 'password_reset',
         code: this.codes.forChallenge(job.payload.challengeId),
-        expiresInSeconds: Math.max(1, Math.ceil((current.expires_at.getTime() - Date.now()) / 1_000)),
+        expiresInSeconds: Math.max(
+          1,
+          Math.ceil((current.expires_at.getTime() - Date.now()) / 1_000),
+        ),
       });
       await this.complete(job.id, token, 'sent');
-      this.logger.log({ event: 'password_recovery_outbox_sent', correlationId: job.id, queueWaitMs: startedAt - job.created_at.getTime(), providerMs: Date.now() - startedAt }, 'PasswordRecoveryOutbox');
+      this.logger.log(
+        {
+          event: 'password_recovery_outbox_sent',
+          correlationId: job.id,
+          queueWaitMs: startedAt - job.created_at.getTime(),
+          providerMs: Date.now() - startedAt,
+        },
+        'PasswordRecoveryOutbox',
+      );
     } catch (error) {
       const delaySeconds = Math.min(300, 2 ** Math.min(job.attempt_count + 1, 8));
       await this.dataSource.query(
         `UPDATE outbox_events SET attempt_count = attempt_count + 1, next_attempt_at = now() + ($3 * interval '1 second'),
          last_error = $4, locked_at = NULL, lock_token = NULL WHERE id = $1 AND lock_token = $2`,
-        [job.id, token, delaySeconds, error instanceof Error ? error.message.slice(0, 500) : 'delivery failed'],
+        [
+          job.id,
+          token,
+          delaySeconds,
+          error instanceof Error ? error.message.slice(0, 500) : 'delivery failed',
+        ],
       );
-      this.logger.warn({ event: 'password_recovery_outbox_retry', correlationId: job.id, attempt: job.attempt_count + 1, backoffSeconds: delaySeconds }, 'PasswordRecoveryOutbox');
+      this.logger.warn(
+        {
+          event: 'password_recovery_outbox_retry',
+          correlationId: job.id,
+          attempt: job.attempt_count + 1,
+          backoffSeconds: delaySeconds,
+        },
+        'PasswordRecoveryOutbox',
+      );
     }
   }
 

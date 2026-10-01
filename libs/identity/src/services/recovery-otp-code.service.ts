@@ -12,7 +12,9 @@ export class RecoveryOtpCodeService {
 
   // A deterministic code lets a retried worker deliver the original challenge without storing it.
   public forChallenge(challengeId: string): string {
-    const bytes = createHmac('sha256', this.secret).update(`password_reset:${challengeId}`).digest();
+    const bytes = createHmac('sha256', this.secret)
+      .update(`password_reset:${challengeId}`)
+      .digest();
     return (100_000 + (bytes.readUInt32BE(0) % 900_000)).toString();
   }
 }
