@@ -9,9 +9,14 @@ import { RecoveryOtpCodeService } from './recovery-otp-code.service';
 interface ClaimedJob {
   id: string;
   aggregate_id: string;
-  payload: { challengeId: string; email: string };
+  payload: unknown;
   attempt_count: number;
-  created_at: Date;
+  created_at: Date | string;
+}
+
+interface PasswordRecoveryPayload {
+  challengeId: string;
+  email: string;
 }
 
 @Injectable()
@@ -27,8 +32,8 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
   ) {}
 
   public onModuleInit(): void {
-    this.timer = setInterval(() => void this.drain(), 1_000);
-    void this.drain();
+    this.timer = setInterval(() => void this.drainSafely(), 1_000);
+    void this.drainSafely();
   }
 
   public onModuleDestroy(): void {
@@ -47,9 +52,12 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
              AND next_attempt_at <= now()
              AND (locked_at IS NULL OR locked_at < now() - interval '2 minutes')
            ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 10
-         ) UPDATE outbox_events o SET locked_at = now(), lock_token = $1
-         FROM candidate WHERE o.id = candidate.id
-         RETURNING o.id, o.aggregate_id, o.payload, o.attempt_count, o.created_at`,
+         ), claimed AS (
+           UPDATE outbox_events o SET locked_at = now(), lock_token = $1
+           FROM candidate WHERE o.id = candidate.id
+           RETURNING o.id, o.aggregate_id, o.payload, o.attempt_count, o.created_at
+         )
+         SELECT id, aggregate_id, payload, attempt_count, created_at FROM claimed`,
         [token],
       );
       await Promise.all(jobs.map((job) => this.process(job, token)));
@@ -59,29 +67,40 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
   }
 
   private async process(job: ClaimedJob, token: string): Promise<void> {
+    const payload = this.parsePayload(job.payload);
+    if (!payload) {
+      await this.complete(job.id, token, 'invalid_payload');
+      this.logger.warn(
+        {
+          event: 'password_recovery_outbox_invalid_payload',
+          correlationId: job.id,
+        },
+        'PasswordRecoveryOutbox',
+      );
+      return;
+    }
+
     const startedAt = Date.now();
-    const [current] = await this.dataSource.query<Array<{ id: string; expires_at: Date }>>(
+    const [current] = await this.dataSource.query<Array<{ id: string; expires_at: Date | string }>>(
       `SELECT id, expires_at FROM otp_challenges WHERE id = $1 AND email = $2 AND purpose = 'password_reset'
        AND consumed_at IS NULL AND expires_at > now()`,
-      [job.payload.challengeId, job.payload.email],
+      [payload.challengeId, payload.email],
     );
     if (!current) return this.complete(job.id, token, 'stale');
     try {
+      const expiresAt = new Date(current.expires_at).getTime();
       await this.delivery.sendOtp({
-        email: job.payload.email,
+        email: payload.email,
         purpose: 'password_reset',
-        code: this.codes.forChallenge(job.payload.challengeId),
-        expiresInSeconds: Math.max(
-          1,
-          Math.ceil((current.expires_at.getTime() - Date.now()) / 1_000),
-        ),
+        code: this.codes.forChallenge(payload.challengeId),
+        expiresInSeconds: Math.max(1, Math.ceil((expiresAt - Date.now()) / 1_000)),
       });
       await this.complete(job.id, token, 'sent');
       this.logger.log(
         {
           event: 'password_recovery_outbox_sent',
           correlationId: job.id,
-          queueWaitMs: startedAt - job.created_at.getTime(),
+          queueWaitMs: startedAt - new Date(job.created_at).getTime(),
           providerMs: Date.now() - startedAt,
         },
         'PasswordRecoveryOutbox',
@@ -110,7 +129,28 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
     }
   }
 
-  private async complete(id: string, token: string, result: 'sent' | 'stale'): Promise<void> {
+  private async drainSafely(): Promise<void> {
+    try {
+      await this.drain();
+    } catch (error) {
+      this.logger.error(error, undefined, 'PasswordRecoveryOutbox');
+    }
+  }
+
+  private parsePayload(payload: unknown): PasswordRecoveryPayload | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const candidate = payload as Record<string, unknown>;
+    if (typeof candidate.challengeId !== 'string' || typeof candidate.email !== 'string') {
+      return null;
+    }
+    return { challengeId: candidate.challengeId, email: candidate.email };
+  }
+
+  private async complete(
+    id: string,
+    token: string,
+    result: 'sent' | 'stale' | 'invalid_payload',
+  ): Promise<void> {
     await this.dataSource.query(
       `UPDATE outbox_events SET published_at = now(), locked_at = NULL, lock_token = NULL, last_error = $3
        WHERE id = $1 AND lock_token = $2`,
