@@ -45,6 +45,7 @@ import {
   exports: [
     IdentityQueryService,
     IdentityAccessService,
+    EmailDeliveryPort,
     JwtSessionService,
     JwtAuthGuard,
     RolesGuard,

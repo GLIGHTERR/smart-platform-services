@@ -56,6 +56,17 @@ This startup mode is limited to the current review/single-instance deployment. B
 uses multiple instances, move migrations to a dedicated release/migration job and keep
 `DATABASE_RUN_MIGRATIONS_ON_STARTUP=false` on every application instance.
 
+## Review deployment outbox consumer
+
+The current single-instance Render review API may set
+`PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED=true` to consume password-recovery email jobs in the API
+process. This keeps the request path asynchronous without requiring a second review service. Leave
+the flag `false` on every other API instance and on multi-instance deployments.
+
+Production should run `npm run start:prod:worker` as a dedicated worker with the same database,
+`OTP_HASH_SECRET`, and email-delivery configuration as the APIs. Database locking makes retries
+safe, but the embedded mode is intentionally limited to one review API instance.
+
 ## Health endpoints
 
 Each API exposes:

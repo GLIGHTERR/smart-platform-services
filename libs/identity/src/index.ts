@@ -5,3 +5,4 @@ export * from './security/auth-context';
 export * from './security/jwt-auth.guard';
 export * from './security/roles.guard';
 export * from './services/recovery-otp-code.service';
+export * from './services/password-recovery-outbox.service';

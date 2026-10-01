@@ -23,6 +23,16 @@ describe('environment configuration', () => {
     expect(result.DATABASE_SSL).toBe(true);
     expect(result.DATABASE_POOL_SIZE).toBe(10);
     expect(result.DATABASE_RUN_MIGRATIONS_ON_STARTUP).toBe(false);
+    expect(result.PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED).toBe(false);
+  });
+
+  it('accepts the single-instance embedded password recovery consumer flag', () => {
+    const result = validateEnvironment({
+      ...validEnvironment,
+      PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED: 'true',
+    });
+
+    expect(result.PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED).toBe(true);
   });
 
   it('loads startup migration and Render revision settings', () => {
