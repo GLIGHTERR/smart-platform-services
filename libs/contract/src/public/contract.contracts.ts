@@ -12,6 +12,14 @@ export interface ContractBillingTermsSnapshot {
   endsOn: string | null;
 }
 
+export interface ActiveRentalSummary {
+  contractId: string;
+  room: string;
+  property: string;
+  expiresAt: string | null;
+  signedAt: string;
+}
+
 export interface CreateContractFromBookingCommand {
   bookingId: string;
   startsOn: string;
@@ -32,6 +40,9 @@ export abstract class ContractQueryService {
   public abstract getActiveContractByRoom(
     roomId: string,
   ): Promise<ContractBillingTermsSnapshot | null>;
+  public abstract listActiveRentalsForRenter(
+    renterId: string,
+  ): Promise<readonly ActiveRentalSummary[]>;
 }
 
 export abstract class ContractPolicyService {

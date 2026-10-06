@@ -4,6 +4,7 @@ import {
   IdentityAccessService,
   IdentityQueryService,
   type ActorRole,
+  type RenterProfileSnapshot,
   type ActorSnapshot,
 } from '../public/identity.contracts';
 
@@ -21,6 +22,14 @@ export class DefaultIdentityQueryService extends IdentityQueryService {
   public async getActorsSnapshot(actorIds: readonly string[]): Promise<readonly ActorSnapshot[]> {
     const snapshots = await Promise.all(actorIds.map((actorId) => this.getActorSnapshot(actorId)));
     return snapshots.filter((snapshot): snapshot is ActorSnapshot => snapshot !== null);
+  }
+
+  public async getRenterProfile(actorId: string): Promise<RenterProfileSnapshot | null> {
+    const user = await this.repository.findById(actorId);
+    if (!user || !user.roles.includes('renter')) {
+      return null;
+    }
+    return { email: user.email, phone: user.phone, displayName: user.displayName };
   }
 }
 

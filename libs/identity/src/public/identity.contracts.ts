@@ -12,6 +12,12 @@ export interface AuthenticatedActor extends ActorSnapshot {
   sessionId: string;
 }
 
+export interface RenterProfileSnapshot {
+  email: string | null;
+  phone: string | null;
+  displayName: string | null;
+}
+
 export interface AuthSessionTokens {
   accessToken: string;
   refreshToken: string;
@@ -23,6 +29,7 @@ export interface AuthSessionTokens {
 export abstract class IdentityQueryService {
   public abstract getActorSnapshot(actorId: string): Promise<ActorSnapshot | null>;
   public abstract getActorsSnapshot(actorIds: readonly string[]): Promise<readonly ActorSnapshot[]>;
+  public abstract getRenterProfile(actorId: string): Promise<RenterProfileSnapshot | null>;
 }
 
 export abstract class IdentityAccessService {
