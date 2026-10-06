@@ -278,6 +278,30 @@ paths:
       responses:
         '204':
           description: All sessions revoked
+  /profile:
+    get:
+      summary: Read the authenticated renter's UC-04 profile and active rentals
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subject-scoped profile; response is private and must not be cached.
+          headers:
+            Cache-Control:
+              schema:
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenterProfileRead'
+        '401':
+          description: INVALID_SESSION for expired, revoked, inactive, or invalid sessions
+        '403':
+          description: ROLE_FORBIDDEN when the actor is not a renter
+        '409':
+          description: PROFILE_INCOMPLETE when the authenticated renter has no usable email
+        '503':
+          description: PROFILE_UNAVAILABLE for profile/contract dependency failures or incomplete active-rental relations
 components:
   securitySchemes:
     bearerAuth:
@@ -352,6 +376,54 @@ components:
         refreshExpiresInSeconds:
           type: integer
           example: 2592000
+    RenterProfileRead:
+      type: object
+      required: [profile, rentals]
+      additionalProperties: false
+      properties:
+        profile:
+          type: object
+          required: [displayName, email, phone, avatar]
+          additionalProperties: false
+          properties:
+            displayName:
+              type: string
+              description: users.display_name, or the approved legacy fallback Người dùng SmartTrọ.
+            email:
+              type: string
+              format: email
+              description: Required users.email; blank or missing values return PROFILE_INCOMPLETE.
+            phone:
+              type: [string, 'null']
+              description: Raw users.phone for authenticated FE-side masking.
+            avatar:
+              type: 'null'
+              description: Always null until an approved avatar source exists.
+        rentals:
+          type: array
+          items:
+            type: object
+            required: [contractId, room, property, expiresAt, signedAt]
+            additionalProperties: false
+            properties:
+              contractId:
+                type: string
+                format: uuid
+                description: contracts.id.
+              room:
+                type: string
+                description: rooms.name, including soft-deleted or inactive rooms while the contract remains active.
+              property:
+                type: string
+                description: properties.name, including soft-deleted or inactive properties while the contract remains active.
+              expiresAt:
+                type: [string, 'null']
+                format: date
+                description: contracts.ends_on; null represents an open-ended active contract.
+              signedAt:
+                type: string
+                format: date-time
+                description: contracts.renter_signed_at, with contracts.activated_at only as the approved legacy fallback.
   responses:
     RateLimited:
       description: AUTH_RATE_LIMITED with retryAfterSeconds

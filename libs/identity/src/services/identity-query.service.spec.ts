@@ -26,7 +26,7 @@ describe('identity query and access contracts', () => {
   }
 
   it('returns immutable actor snapshots and filters missing actors in batch reads', async () => {
-    const { queries, renterId } = await harness();
+    const { queries, repository, renterId } = await harness();
 
     await expect(queries.getActorSnapshot(renterId)).resolves.toEqual({
       id: renterId,
@@ -34,6 +34,18 @@ describe('identity query and access contracts', () => {
       status: 'active',
     });
     await expect(queries.getActorsSnapshot([renterId, 'missing'])).resolves.toHaveLength(1);
+    await expect(queries.getRenterProfile(renterId)).resolves.toEqual({
+      email: null,
+      phone: '+84901234567',
+      displayName: 'Existing User',
+    });
+    const owner = repository.addActiveUser({
+      phone: '+84909999999',
+      passwordHash: 'hash',
+      roles: ['owner'],
+    });
+    await expect(queries.getRenterProfile(owner.id)).resolves.toBeNull();
+    await expect(queries.getRenterProfile('missing')).resolves.toBeNull();
   });
 
   it('enforces active role, permission and payer checks through the public contract', async () => {

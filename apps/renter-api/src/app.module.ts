@@ -12,6 +12,8 @@ import { PaymentModule } from '@platform/payment';
 import { PropertyModule } from '@platform/property';
 import { RenterSessionController } from './session.controller';
 import { ListingsController } from './listings.controller';
+import { ProfileController } from './profile.controller';
+import { ProfileReadService } from './profile-read.service';
 
 @Module({
   imports: [
@@ -28,10 +30,12 @@ import { ListingsController } from './listings.controller';
     NotificationModule,
     MediaModule,
   ],
-  controllers: [RenterSessionController, ListingsController],
-  providers:
-    process.env.PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED === 'true'
+  controllers: [RenterSessionController, ListingsController, ProfileController],
+  providers: [
+    ProfileReadService,
+    ...(process.env.PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED === 'true'
       ? [PasswordRecoveryOutboxService]
-      : [],
+      : []),
+  ],
 })
 export class RenterApiModule {}
