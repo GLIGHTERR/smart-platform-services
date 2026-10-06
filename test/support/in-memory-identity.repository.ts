@@ -13,6 +13,7 @@ import {
   type PasswordResetTokenRecord,
   type RecoveryAuditInput,
   type PasswordRecoveryOutboxInput,
+  type RegistrationOutboxInput,
   type SessionRotationResult,
   type ThrottleBucket,
   type ThrottlePolicy,
@@ -31,6 +32,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   private readonly socialUsers = new Map<string, string>();
   public readonly recoveryAudits: RecoveryAuditInput[] = [];
   public readonly recoveryOutbox: PasswordRecoveryOutboxInput[] = [];
+  public readonly registrationOutbox: RegistrationOutboxInput[] = [];
 
   public async findByPhone(phone: string): Promise<IdentityUser | null> {
     return [...this.users.values()].find((user) => user.phone === phone) ?? null;
@@ -185,6 +187,28 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     if (input.outbox) {
       this.recoveryOutbox.push(input.outbox);
     }
+  }
+
+  public async replaceRegistrationChallenge(input: {
+    id: string;
+    email: string;
+    codeHash: string;
+    maxAttempts: number;
+    expiresAt: Date;
+    requestedIp: string | null;
+    outbox: RegistrationOutboxInput;
+  }): Promise<void> {
+    await this.replaceOtpChallenge({
+      id: input.id,
+      email: input.email,
+      phone: null,
+      purpose: 'registration',
+      codeHash: input.codeHash,
+      maxAttempts: input.maxAttempts,
+      expiresAt: input.expiresAt,
+      requestedIp: input.requestedIp,
+    });
+    this.registrationOutbox.push(input.outbox);
   }
 
   public async findOtpChallenge(

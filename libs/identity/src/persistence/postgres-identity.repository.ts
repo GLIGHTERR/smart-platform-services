@@ -12,6 +12,7 @@ import {
   type OtpChallengeRecord,
   type OtpPurpose,
   type PasswordRecoveryOutboxInput,
+  type RegistrationOutboxInput,
   type PasswordResetResult,
   type PasswordResetTokenRecord,
   type RecoveryAuditInput,
@@ -326,6 +327,46 @@ export class PostgresIdentityRepository extends IdentityRepository {
           ],
         );
       }
+    });
+  }
+
+  public async replaceRegistrationChallenge(input: {
+    id: string;
+    email: string;
+    codeHash: string;
+    maxAttempts: number;
+    expiresAt: Date;
+    requestedIp: string | null;
+    outbox: RegistrationOutboxInput;
+  }): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE otp_challenges SET consumed_at = now()
+         WHERE email = $1 AND purpose = 'registration' AND consumed_at IS NULL`,
+        [input.email],
+      );
+      await manager.query(
+        `INSERT INTO otp_challenges (id, email, phone, purpose, code_hash, max_attempts, expires_at, requested_ip)
+         VALUES ($1, $2, NULL, 'registration', $3, $4, $5, $6)`,
+        [
+          input.id,
+          input.email,
+          input.codeHash,
+          input.maxAttempts,
+          input.expiresAt,
+          input.requestedIp,
+        ],
+      );
+      await manager.query(
+        `INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, occurred_at, next_attempt_at)
+         VALUES ($1, 'otp_challenge', $2, 'registration_email', $3::jsonb, $4, $4)`,
+        [
+          input.outbox.id,
+          input.outbox.challengeId,
+          JSON.stringify({ challengeId: input.outbox.challengeId, email: input.outbox.email }),
+          input.outbox.occurredAt,
+        ],
+      );
     });
   }
 

@@ -75,6 +75,13 @@ export interface PasswordRecoveryOutboxInput {
   occurredAt: Date;
 }
 
+export interface RegistrationOutboxInput {
+  id: string;
+  challengeId: string;
+  email: string;
+  occurredAt: Date;
+}
+
 export type PasswordResetResult = 'reset' | 'invalid';
 
 export interface NewSession {
@@ -134,6 +141,15 @@ export abstract class IdentityRepository {
     expiresAt: Date;
     requestedIp: string | null;
     outbox: PasswordRecoveryOutboxInput | null;
+  }): Promise<void>;
+  public abstract replaceRegistrationChallenge(input: {
+    id: string;
+    email: string;
+    codeHash: string;
+    maxAttempts: number;
+    expiresAt: Date;
+    requestedIp: string | null;
+    outbox: RegistrationOutboxInput;
   }): Promise<void>;
   public abstract findOtpChallenge(
     recipient: { email: string } | { phone: string },

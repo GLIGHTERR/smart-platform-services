@@ -147,7 +147,7 @@ describe('AuthService email identity flows', () => {
     completed: Awaited<ReturnType<AuthService['completeSignup']>>;
   }> {
     const requested = await harness.auth.requestSignupOtp('  User@Example.COM ', context);
-    const code = harness.emailDelivery.messages.at(-1)?.code ?? '';
+    const code = harness.recoveryOtpCodes.forRegistrationChallenge(requested.attemptId);
     const verified = await harness.auth.verifySignupOtp(
       { email: 'user@example.com', attemptId: requested.attemptId, code },
       context,
@@ -210,7 +210,8 @@ describe('AuthService email identity flows', () => {
     const first = await harness.auth.requestSignupOtp('user@example.com', context);
     const immediate = await harness.auth.requestSignupOtp('user@example.com', context);
     expect(immediate.attemptId).toBe(first.attemptId);
-    expect(harness.emailDelivery.messages).toHaveLength(1);
+    expect(harness.emailDelivery.messages).toHaveLength(0);
+    expect(harness.repository.registrationOutbox).toHaveLength(1);
 
     for (let request = 1; request < 5; request += 1) {
       jest.advanceTimersByTime(61_000);
@@ -222,16 +223,48 @@ describe('AuthService email identity flows', () => {
     });
   });
 
-  it('cancels the challenge and fails closed when email delivery is unavailable', async () => {
+  it('queues the challenge without waiting for an unavailable email provider', async () => {
     const harness = createHarness();
     harness.emailDelivery.sendFailure = new Error('provider unavailable');
 
-    await expect(harness.auth.requestSignupOtp('user@example.com', context)).rejects.toThrow(
-      'provider unavailable',
+    await expect(harness.auth.requestSignupOtp('user@example.com', context)).resolves.toEqual(
+      expect.objectContaining({ accepted: true }),
     );
-    expect(
-      await harness.repository.findOtpChallenge({ email: 'user@example.com' }, 'registration'),
-    ).toBeNull();
+    expect(harness.emailDelivery.messages).toHaveLength(0);
+    expect(harness.repository.registrationOutbox).toHaveLength(1);
+  });
+
+  it('accepts signup before a delayed email provider can run and keeps OTP out of the job', async () => {
+    const harness = createHarness();
+    harness.emailDelivery.sendOtp = jest.fn(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    );
+
+    const response = await Promise.race([
+      harness.auth.requestSignupOtp('user@example.com', context),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('request waited')), 50),
+      ),
+    ]);
+
+    expect(response.accepted).toBe(true);
+    expect(harness.emailDelivery.messages).toHaveLength(0);
+    expect(harness.repository.registrationOutbox).toHaveLength(1);
+    expect(JSON.stringify(harness.repository.registrationOutbox)).not.toContain(
+      harness.recoveryOtpCodes.forRegistrationChallenge(response.attemptId),
+    );
+  });
+
+  it('does not return an accepted response when registration persistence fails', async () => {
+    const harness = createHarness();
+    jest
+      .spyOn(harness.repository, 'replaceRegistrationChallenge')
+      .mockRejectedValueOnce(new Error('transaction failed'));
+
+    await expect(harness.auth.requestSignupOtp('user@example.com', context)).rejects.toThrow(
+      'transaction failed',
+    );
+    expect(harness.repository.registrationOutbox).toHaveLength(0);
   });
 
   it('fails closed before account lookup when the email adapter is not configured', async () => {
@@ -249,7 +282,7 @@ describe('AuthService email identity flows', () => {
     jest.useFakeTimers({ now: new Date('2026-09-21T00:00:00Z') });
     const harness = createHarness();
     const requested = await harness.auth.requestSignupOtp('user@example.com', context);
-    const correctCode = harness.emailDelivery.messages[0]?.code ?? '';
+    const correctCode = harness.recoveryOtpCodes.forRegistrationChallenge(requested.attemptId);
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await expect(
@@ -274,7 +307,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'other@example.com',
           attemptId: expiring.attemptId,
-          code: harness.emailDelivery.messages.at(-1)?.code ?? '',
+          code: harness.recoveryOtpCodes.forRegistrationChallenge(expiring.attemptId),
         },
         context,
       ),
@@ -287,7 +320,7 @@ describe('AuthService email identity flows', () => {
     const input = {
       email: 'user@example.com',
       attemptId: requested.attemptId,
-      code: harness.emailDelivery.messages[0]?.code ?? '',
+      code: harness.recoveryOtpCodes.forRegistrationChallenge(requested.attemptId),
     };
     const verified = await harness.auth.verifySignupOtp(input, context);
     expect(verified).not.toHaveProperty('signupToken');
@@ -339,7 +372,7 @@ describe('AuthService email identity flows', () => {
         {
           email: 'user@example.com',
           attemptId: requested.attemptId,
-          code: harness.emailDelivery.messages[0]?.code ?? '',
+          code: harness.recoveryOtpCodes.forRegistrationChallenge(requested.attemptId),
         },
         context,
       ),
@@ -1073,7 +1106,7 @@ describe('AuthService email identity flows', () => {
       {
         email: 'user@example.com',
         attemptId: requested.attemptId,
-        code: harness.emailDelivery.messages[0]?.code ?? '',
+        code: harness.recoveryOtpCodes.forRegistrationChallenge(requested.attemptId),
       },
       noMetadata,
     );

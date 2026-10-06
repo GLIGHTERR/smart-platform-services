@@ -9,6 +9,7 @@ import { RecoveryOtpCodeService } from './recovery-otp-code.service';
 interface ClaimedJob {
   id: string;
   aggregate_id: string;
+  event_type: 'password_recovery_email' | 'registration_email';
   payload: unknown;
   attempt_count: number;
   created_at: Date | string;
@@ -48,16 +49,16 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
       const jobs = await this.dataSource.query<ClaimedJob[]>(
         `WITH candidate AS (
            SELECT id FROM outbox_events
-           WHERE event_type = 'password_recovery_email' AND published_at IS NULL
+           WHERE event_type IN ('password_recovery_email', 'registration_email') AND published_at IS NULL
              AND next_attempt_at <= now()
              AND (locked_at IS NULL OR locked_at < now() - interval '2 minutes')
            ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 10
          ), claimed AS (
            UPDATE outbox_events o SET locked_at = now(), lock_token = $1
            FROM candidate WHERE o.id = candidate.id
-           RETURNING o.id, o.aggregate_id, o.payload, o.attempt_count, o.created_at
+           RETURNING o.id, o.aggregate_id, o.event_type, o.payload, o.attempt_count, o.created_at
          )
-         SELECT id, aggregate_id, payload, attempt_count, created_at FROM claimed`,
+         SELECT id, aggregate_id, event_type, payload, attempt_count, created_at FROM claimed`,
         [token],
       );
       await Promise.all(jobs.map((job) => this.process(job, token)));
@@ -81,18 +82,22 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
     }
 
     const startedAt = Date.now();
+    const purpose = job.event_type === 'registration_email' ? 'registration' : 'password_reset';
     const [current] = await this.dataSource.query<Array<{ id: string; expires_at: Date | string }>>(
-      `SELECT id, expires_at FROM otp_challenges WHERE id = $1 AND email = $2 AND purpose = 'password_reset'
-       AND consumed_at IS NULL AND expires_at > now()`,
-      [payload.challengeId, payload.email],
+      `SELECT id, expires_at FROM otp_challenges WHERE id = $1 AND email = $2 AND purpose = $3
+       AND consumed_at IS NULL AND verified_at IS NULL AND expires_at > now()`,
+      [payload.challengeId, payload.email, purpose],
     );
     if (!current) return this.complete(job.id, token, 'stale');
     try {
       const expiresAt = new Date(current.expires_at).getTime();
       await this.delivery.sendOtp({
         email: payload.email,
-        purpose: 'password_reset',
-        code: this.codes.forChallenge(payload.challengeId),
+        purpose,
+        code:
+          purpose === 'registration'
+            ? this.codes.forRegistrationChallenge(payload.challengeId)
+            : this.codes.forChallenge(payload.challengeId),
         expiresInSeconds: Math.max(1, Math.ceil((expiresAt - Date.now()) / 1_000)),
       });
       await this.complete(job.id, token, 'sent');

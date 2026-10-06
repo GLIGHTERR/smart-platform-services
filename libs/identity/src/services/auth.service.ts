@@ -167,29 +167,17 @@ export class AuthService {
       return this.otpAccepted(randomUUID(), this.otpTtlSeconds, this.otpResendCooldownSeconds);
     }
 
-    const code = randomInt(100_000, 1_000_000).toString();
     const attemptId = randomUUID();
-    await this.repository.replaceOtpChallenge({
+    const code = this.recoveryOtpCodes.forRegistrationChallenge(attemptId);
+    await this.repository.replaceRegistrationChallenge({
       id: attemptId,
       email,
-      phone: null,
-      purpose: 'registration',
       codeHash: this.hashOtp(email, 'registration', code),
       maxAttempts: this.otpMaxAttempts,
       expiresAt: new Date(now.getTime() + this.otpTtlSeconds * 1000),
       requestedIp: context.ipAddress,
+      outbox: { id: randomUUID(), challengeId: attemptId, email, occurredAt: now },
     });
-    try {
-      await this.emailDelivery.sendOtp({
-        email,
-        purpose: 'registration',
-        code,
-        expiresInSeconds: this.otpTtlSeconds,
-      });
-    } catch (error: unknown) {
-      await this.repository.cancelOtp(attemptId, new Date());
-      throw error;
-    }
     return this.otpAccepted(attemptId, this.otpTtlSeconds, this.otpResendCooldownSeconds);
   }
 

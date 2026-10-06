@@ -38,6 +38,36 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     await expect(repository.markOtpVerified(challengeId, timestamp)).resolves.toBe(true);
   });
 
+  it('replaces a registration challenge and its outbox job in one transaction without OTP plaintext', async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+    const manager = { query } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (work: (value: EntityManager) => Promise<void>) => work(manager)),
+    } as unknown as DataSource;
+    const repository = new PostgresIdentityRepository(dataSource);
+
+    await repository.replaceRegistrationChallenge({
+      id: challengeId,
+      email: 'user@example.com',
+      codeHash: 'a'.repeat(64),
+      maxAttempts: 5,
+      expiresAt: new Date('2026-09-21T10:10:00.000Z'),
+      requestedIp: '203.0.113.10',
+      outbox: {
+        id: '129124c5-c5e4-4c1e-b268-b28644046570',
+        challengeId,
+        email: 'user@example.com',
+        occurredAt: timestamp,
+      },
+    });
+
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(String(query.mock.calls[0]?.[0])).toContain("purpose = 'registration'");
+    expect(String(query.mock.calls[2]?.[0])).toContain("'registration_email'");
+    expect(JSON.stringify(query.mock.calls)).not.toContain('123456');
+  });
+
   it('atomically consumes the OTP, stores the hashed token, and writes a masked audit', async () => {
     const query = jest
       .fn()
