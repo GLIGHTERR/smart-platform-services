@@ -237,6 +237,7 @@ export class AuthService {
       email,
       phone: input.phone?.trim() || null,
       passwordHash: await this.passwords.hash(input.password),
+      displayName: input.displayName.trim(),
       codeHash: challenge.codeHash,
       completedAt: new Date(),
     });

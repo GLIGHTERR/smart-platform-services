@@ -22,6 +22,7 @@ export interface CompleteEmailSignup {
   email: string;
   phone: string | null;
   passwordHash: string;
+  displayName: string;
   codeHash: string;
   completedAt: Date;
 }

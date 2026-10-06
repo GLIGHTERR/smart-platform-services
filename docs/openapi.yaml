@@ -78,7 +78,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, attemptId, code, password]
+              required: [email, attemptId, code, password, displayName]
               properties:
                 email:
                   type: string
@@ -94,6 +94,11 @@ paths:
                   minLength: 8
                   maxLength: 128
                   description: Must include lowercase, uppercase, number, and special character.
+                displayName:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                  description: Required full name. Leading and trailing whitespace is removed before validation and persistence.
                 phone:
                   type: string
                   pattern: '^\+[1-9]\d{7,14}$'

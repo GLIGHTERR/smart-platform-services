@@ -68,6 +68,54 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     expect(JSON.stringify(query.mock.calls)).not.toContain('123456');
   });
 
+  it('stores the signup display name in the same transaction that consumes the OTP', async () => {
+    const userId = '234cc3de-18ca-4b8b-a45d-522b9ec5d31e';
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([{ id: challengeId }])
+      .mockResolvedValueOnce([{ id: userId }])
+      .mockResolvedValueOnce([{ id: 1 }])
+      .mockResolvedValue(undefined);
+    const manager = { query } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (work: (value: EntityManager) => Promise<string | null>) =>
+        work(manager),
+      ),
+    } as unknown as DataSource;
+    const repository = new PostgresIdentityRepository(dataSource);
+    jest.spyOn(repository, 'findById').mockResolvedValue({
+      id: userId,
+      email: 'user@example.com',
+      phone: null,
+      passwordHash: 'password-hash',
+      displayName: 'Nguyen Van A',
+      status: 'active',
+      roles: ['renter'],
+    });
+
+    await repository.completeEmailSignup({
+      challengeId,
+      email: 'user@example.com',
+      phone: null,
+      passwordHash: 'password-hash',
+      displayName: 'Nguyen Van A',
+      codeHash: 'a'.repeat(64),
+      completedAt: timestamp,
+    });
+
+    expect(String(query.mock.calls[1]?.[0])).toContain(
+      '(email, phone, password_hash, display_name, status, email_verified_at)',
+    );
+    expect(query.mock.calls[1]?.[1]).toEqual([
+      'user@example.com',
+      null,
+      'password-hash',
+      'Nguyen Van A',
+      timestamp,
+    ]);
+    expect(String(query.mock.calls.at(-1)?.[0])).toContain('UPDATE otp_challenges');
+  });
+
   it('atomically consumes the OTP, stores the hashed token, and writes a masked audit', async () => {
     const query = jest
       .fn()

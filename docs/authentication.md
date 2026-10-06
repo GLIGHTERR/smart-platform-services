@@ -12,11 +12,15 @@ The production flow has three explicit steps and never auto-logs in:
    response shape is used when the email already has an account.
 2. `POST /auth/signup/otp/verify` accepts the email, attempt ID and six-digit code. Its response
    confirms verification without returning an OTP, password, or token.
-3. `POST /auth/signup/complete` resubmits the in-memory OTP with a valid password, atomically creates
-   an active renter account, and returns `{ "created": true, "next": "sign_in" }`. It returns no JWT.
+3. `POST /auth/signup/complete` resubmits the in-memory OTP with a valid password and required
+   `displayName`, atomically creates an active renter account, and returns
+   `{ "created": true, "next": "sign_in" }`. The name is trimmed, must remain non-empty, and is
+   limited to 160 characters. The response returns no JWT.
 
-The optional phone on the completion request is stored as contact data. Concurrent completion or
+The trimmed `displayName` is stored in `users.display_name`. The optional phone on the completion
+request is stored as contact data. Concurrent completion or
 duplicate-email races create at most one user and return the generic `SIGNUP_UNAVAILABLE` error.
+Existing accounts with a null display name remain supported; this change requires no backfill.
 
 ## Sign-in and sessions
 

@@ -90,7 +90,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
       email: input.email,
       phone: input.phone,
       passwordHash: input.passwordHash,
-      displayName: null,
+      displayName: input.displayName,
       status: 'active',
       roles: ['renter'],
     };
