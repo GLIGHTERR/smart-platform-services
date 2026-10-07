@@ -22,25 +22,33 @@ export class DefaultContractQueryService {
       throw this.unavailable();
     }
 
-    const missingSignedAt = records.filter(
-      (record) => !record.renterSignedAt && !record.activatedAt,
-    );
-    if (missingSignedAt.length) {
-      this.logger.write('warn', 'profile_active_rental_missing_signed_at', 'ContractQuery', {
-        count: missingSignedAt.length,
+    const invalidLifecycleCount = records.filter(
+      (record) =>
+        !record.ownerSignedAt || !record.renterSignedAt || !record.activatedAt || !record.expiresAt,
+    ).length;
+    if (invalidLifecycleCount) {
+      this.logger.write('warn', 'profile_active_rental_invalid_lifecycle', 'ContractQuery', {
+        count: invalidLifecycleCount,
       });
     }
 
     return records
       .filter((record): record is ActiveRenterContractRecord & { room: string; property: string } =>
-        Boolean(record.room && record.property && (record.renterSignedAt || record.activatedAt)),
+        Boolean(
+          record.room &&
+          record.property &&
+          record.ownerSignedAt &&
+          record.renterSignedAt &&
+          record.activatedAt &&
+          record.expiresAt,
+        ),
       )
       .map((record) => ({
         contractId: record.contractId,
         room: record.room,
         property: record.property,
         expiresAt: record.expiresAt,
-        signedAt: (record.renterSignedAt ?? record.activatedAt)!.toISOString(),
+        signedAt: record.renterSignedAt!.toISOString(),
       }))
       .sort(
         (left, right) =>

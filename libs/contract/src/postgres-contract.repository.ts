@@ -8,6 +8,7 @@ interface ActiveRenterContractRow {
   room: string | null;
   property: string | null;
   expires_at: string | null;
+  owner_signed_at: Date | null;
   renter_signed_at: Date | null;
   activated_at: Date | null;
 }
@@ -28,12 +29,18 @@ export class PostgresContractRepository extends ContractRepository {
           r.name AS room,
           p.name AS property,
           c.ends_on::text AS expires_at,
+          c.owner_signed_at,
           c.renter_signed_at,
           c.activated_at
         FROM contracts c
         LEFT JOIN rooms r ON r.id = c.room_id
         LEFT JOIN properties p ON p.id = r.property_id
-        WHERE c.renter_id = $1 AND c.status = 'active'
+        WHERE c.renter_id = $1
+          AND c.status = 'active'
+          AND c.owner_signed_at IS NOT NULL
+          AND c.renter_signed_at IS NOT NULL
+          AND c.activated_at IS NOT NULL
+          AND c.ends_on IS NOT NULL
       `,
       [renterId],
     );
@@ -42,6 +49,7 @@ export class PostgresContractRepository extends ContractRepository {
       room: row.room,
       property: row.property,
       expiresAt: row.expires_at,
+      ownerSignedAt: row.owner_signed_at ? new Date(row.owner_signed_at) : null,
       renterSignedAt: row.renter_signed_at ? new Date(row.renter_signed_at) : null,
       activatedAt: row.activated_at ? new Date(row.activated_at) : null,
     }));

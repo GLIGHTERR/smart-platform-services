@@ -3,6 +3,7 @@ export interface ActiveRenterContractRecord {
   room: string | null;
   property: string | null;
   expiresAt: string | null;
+  ownerSignedAt: Date | null;
   renterSignedAt: Date | null;
   activatedAt: Date | null;
 }
