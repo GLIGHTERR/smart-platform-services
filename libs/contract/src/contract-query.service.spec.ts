@@ -27,15 +27,16 @@ describe('DefaultContractQueryService', () => {
     expect(logger.write).not.toHaveBeenCalled();
   });
 
-  it('uses renter_signed_at first, activated_at only as legacy fallback, and sorts stably', async () => {
+  it('returns fully signed active rentals and sorts them stably', async () => {
     const { service, repository } = harness();
     repository.listActiveRenterContracts.mockResolvedValue([
       {
         contractId: 'b',
         room: 'Phong 2',
         property: 'Nha B',
-        expiresAt: null,
-        renterSignedAt: null,
+        expiresAt: '2027-02-01',
+        ownerSignedAt: new Date('2026-01-31T00:00:00.000Z'),
+        renterSignedAt: new Date('2026-02-01T00:00:00.000Z'),
         activatedAt: new Date('2026-02-01T00:00:00.000Z'),
       },
       {
@@ -43,6 +44,7 @@ describe('DefaultContractQueryService', () => {
         room: 'Phong 1',
         property: 'Nha A',
         expiresAt: '2027-01-01',
+        ownerSignedAt: new Date('2025-12-31T00:00:00.000Z'),
         renterSignedAt: new Date('2026-01-01T00:00:00.000Z'),
         activatedAt: new Date('2026-01-02T00:00:00.000Z'),
       },
@@ -51,8 +53,9 @@ describe('DefaultContractQueryService', () => {
         room: 'Phong 3',
         property: 'Nha C',
         expiresAt: '2027-02-01',
+        ownerSignedAt: new Date('2025-12-31T00:00:00.000Z'),
         renterSignedAt: new Date('2026-01-01T00:00:00.000Z'),
-        activatedAt: null,
+        activatedAt: new Date('2026-01-01T00:00:00.000Z'),
       },
     ]);
 
@@ -63,27 +66,48 @@ describe('DefaultContractQueryService', () => {
     ]);
   });
 
-  it('omits malformed timestamps and emits a count-only data-quality signal', async () => {
-    const { service, repository, logger } = harness();
-    repository.listActiveRenterContracts.mockResolvedValue([
-      {
-        contractId: 'broken',
-        room: 'Phong 1',
-        property: 'Nha A',
-        expiresAt: '2027-01-01',
-        renterSignedAt: null,
-        activatedAt: null,
-      },
-    ]);
+  it.each([
+    {
+      ownerSignedAt: null,
+      renterSignedAt: new Date(),
+      activatedAt: new Date(),
+      expiresAt: '2027-01-01',
+    },
+    {
+      ownerSignedAt: new Date(),
+      renterSignedAt: null,
+      activatedAt: new Date(),
+      expiresAt: '2027-01-01',
+    },
+    {
+      ownerSignedAt: new Date(),
+      renterSignedAt: new Date(),
+      activatedAt: null,
+      expiresAt: '2027-01-01',
+    },
+    {
+      ownerSignedAt: new Date(),
+      renterSignedAt: new Date(),
+      activatedAt: new Date(),
+      expiresAt: null,
+    },
+  ])(
+    'omits an active row missing a lifecycle prerequisite and emits a count-only diagnostic',
+    async (invalid) => {
+      const { service, repository, logger } = harness();
+      repository.listActiveRenterContracts.mockResolvedValue([
+        { contractId: 'broken', room: 'Phong 1', property: 'Nha A', ...invalid },
+      ]);
 
-    await expect(service.listActiveRentalsForRenter('renter-a')).resolves.toEqual([]);
-    expect(logger.write).toHaveBeenCalledWith(
-      'warn',
-      'profile_active_rental_missing_signed_at',
-      'ContractQuery',
-      { count: 1 },
-    );
-  });
+      await expect(service.listActiveRentalsForRenter('renter-a')).resolves.toEqual([]);
+      expect(logger.write).toHaveBeenCalledWith(
+        'warn',
+        'profile_active_rental_invalid_lifecycle',
+        'ContractQuery',
+        { count: 1 },
+      );
+    },
+  );
 
   it.each([
     { room: null, property: 'Nha A' },
@@ -98,8 +122,9 @@ describe('DefaultContractQueryService', () => {
           room,
           property,
           expiresAt: '2027-01-01',
+          ownerSignedAt: new Date('2025-12-31T00:00:00.000Z'),
           renterSignedAt: new Date('2026-01-01T00:00:00.000Z'),
-          activatedAt: null,
+          activatedAt: new Date('2026-01-01T00:00:00.000Z'),
         },
       ]);
 

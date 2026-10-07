@@ -8,6 +8,7 @@ describe('platformMigrations', () => {
       'EmailIdentityAuth1700000002000',
       'PasswordRecovery1700000003000',
       'PasswordRecoveryOutbox1700000004000',
+      'ContractActiveLifecycle1700000005000',
     ]);
   });
 });
