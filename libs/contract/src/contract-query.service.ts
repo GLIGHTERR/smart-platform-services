@@ -14,7 +14,7 @@ export class DefaultContractQueryService {
     renterId: string,
   ): Promise<readonly ActiveRentalSummary[]> {
     const records = await this.repository.listActiveRenterContracts(renterId);
-    const unreadableCount = records.filter((record) => !record.room || !record.property).length;
+    const unreadableCount = records.filter((record) => !this.hasDisplayableRental(record)).length;
     if (unreadableCount) {
       this.logger.write('warn', 'profile_active_rental_relation_missing', 'ContractQuery', {
         count: unreadableCount,
@@ -33,10 +33,9 @@ export class DefaultContractQueryService {
     }
 
     return records
-      .filter((record): record is ActiveRenterContractRecord & { room: string; property: string } =>
+      .filter((record): record is ActiveRenterContractRecord & { room: string; property: string; propertyAddress: Record<string, unknown> } =>
         Boolean(
-          record.room &&
-          record.property &&
+          this.hasDisplayableRental(record) &&
           record.ownerSignedAt &&
           record.renterSignedAt &&
           record.activatedAt &&
@@ -47,6 +46,7 @@ export class DefaultContractQueryService {
         contractId: record.contractId,
         room: record.room,
         property: record.property,
+        propertyAddress: record.propertyAddress,
         expiresAt: record.expiresAt,
         signedAt: record.renterSignedAt!.toISOString(),
       }))
@@ -62,5 +62,16 @@ export class DefaultContractQueryService {
       code: 'PROFILE_UNAVAILABLE',
       message: 'Profile is temporarily unavailable',
     });
+  }
+
+  private hasDisplayableRental(record: ActiveRenterContractRecord): boolean {
+    return Boolean(
+      record.room &&
+      record.property &&
+      record.propertyAddress &&
+      Object.values(record.propertyAddress).some(
+        (value) => typeof value === 'string' && value.trim().length > 0,
+      ),
+    );
   }
 }

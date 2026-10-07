@@ -34,6 +34,7 @@ describe('DefaultContractQueryService', () => {
         contractId: 'b',
         room: 'Phong 2',
         property: 'Nha B',
+        propertyAddress: { street: '2 Nguyen Hue' },
         expiresAt: '2027-02-01',
         ownerSignedAt: new Date('2026-01-31T00:00:00.000Z'),
         renterSignedAt: new Date('2026-02-01T00:00:00.000Z'),
@@ -43,6 +44,7 @@ describe('DefaultContractQueryService', () => {
         contractId: 'a',
         room: 'Phong 1',
         property: 'Nha A',
+        propertyAddress: { street: '1 Nguyen Hue' },
         expiresAt: '2027-01-01',
         ownerSignedAt: new Date('2025-12-31T00:00:00.000Z'),
         renterSignedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -52,6 +54,7 @@ describe('DefaultContractQueryService', () => {
         contractId: 'c',
         room: 'Phong 3',
         property: 'Nha C',
+        propertyAddress: { street: '3 Nguyen Hue' },
         expiresAt: '2027-02-01',
         ownerSignedAt: new Date('2025-12-31T00:00:00.000Z'),
         renterSignedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -96,7 +99,7 @@ describe('DefaultContractQueryService', () => {
     async (invalid) => {
       const { service, repository, logger } = harness();
       repository.listActiveRenterContracts.mockResolvedValue([
-        { contractId: 'broken', room: 'Phong 1', property: 'Nha A', ...invalid },
+        { contractId: 'broken', room: 'Phong 1', property: 'Nha A', propertyAddress: { street: '1 Nguyen Hue' }, ...invalid },
       ]);
 
       await expect(service.listActiveRentalsForRenter('renter-a')).resolves.toEqual([]);
@@ -121,6 +124,7 @@ describe('DefaultContractQueryService', () => {
           contractId: 'broken',
           room,
           property,
+          propertyAddress: { street: '1 Nguyen Hue' },
           expiresAt: '2027-01-01',
           ownerSignedAt: new Date('2025-12-31T00:00:00.000Z'),
           renterSignedAt: new Date('2026-01-01T00:00:00.000Z'),

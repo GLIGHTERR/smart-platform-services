@@ -2,6 +2,7 @@ export interface ActiveRenterContractRecord {
   contractId: string;
   room: string | null;
   property: string | null;
+  propertyAddress: Record<string, unknown> | null;
   expiresAt: string | null;
   ownerSignedAt: Date | null;
   renterSignedAt: Date | null;
