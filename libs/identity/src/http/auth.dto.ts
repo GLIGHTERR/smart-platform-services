@@ -64,6 +64,12 @@ export class SignupCompleteDto extends PasswordDto {
   @Matches(OTP_CODE)
   public code!: string;
 
+  @Transform(({ value }): unknown => trimmed(value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(160)
+  public displayName!: string;
+
   @IsOptional()
   @Transform(({ value }): unknown => trimmed(value))
   @Matches(E164_PHONE, { message: 'phone must use E.164 format, for example +84901234567' })

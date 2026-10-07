@@ -156,10 +156,10 @@ export class PostgresIdentityRepository extends IdentityRepository {
           `
             INSERT INTO users
               (email, phone, password_hash, display_name, status, email_verified_at)
-            VALUES ($1, $2, $3, NULL, 'active', $4)
+            VALUES ($1, $2, $3, $4, 'active', $5)
             RETURNING id
           `,
-          [input.email, input.phone, input.passwordHash, input.completedAt],
+          [input.email, input.phone, input.passwordHash, input.displayName, input.completedAt],
         );
         if (!user) {
           throw new Error('User insert returned no row');

@@ -157,6 +157,7 @@ describe('AuthService email identity flows', () => {
       attemptId: requested.attemptId,
       code,
       password: 'Secure1!',
+      displayName: '  Nguyen Van A  ',
       phone: '+84901234567',
     });
     return { requested, verified, completed };
@@ -182,6 +183,7 @@ describe('AuthService email identity flows', () => {
       expect.objectContaining({
         email: 'user@example.com',
         phone: '+84901234567',
+        displayName: 'Nguyen Van A',
         status: 'active',
         roles: ['renter'],
       }),
@@ -333,6 +335,7 @@ describe('AuthService email identity flows', () => {
         attemptId: input.attemptId,
         code: '000000',
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -342,12 +345,14 @@ describe('AuthService email identity flows', () => {
         attemptId: input.attemptId,
         code: input.code,
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
       harness.auth.completeSignup({
         email: input.email,
         attemptId: input.attemptId,
         code: input.code,
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
     ]);
     expect(completions.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -362,6 +367,7 @@ describe('AuthService email identity flows', () => {
         attemptId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
         code: '123456',
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
