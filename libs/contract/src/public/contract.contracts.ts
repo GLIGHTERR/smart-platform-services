@@ -16,6 +16,7 @@ export interface ActiveRentalSummary {
   contractId: string;
   room: string;
   property: string;
+  propertyAddress: Record<string, unknown>;
   expiresAt: string | null;
   signedAt: string;
 }

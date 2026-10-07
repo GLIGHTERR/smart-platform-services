@@ -403,7 +403,7 @@ components:
           type: array
           items:
             type: object
-            required: [contractId, room, property, expiresAt, signedAt]
+            required: [contractId, room, property, propertyAddress, expiresAt, signedAt]
             additionalProperties: false
             properties:
               contractId:
@@ -416,6 +416,10 @@ components:
               property:
                 type: string
                 description: properties.name, including soft-deleted or inactive properties while the contract remains active.
+              propertyAddress:
+                type: object
+                additionalProperties: true
+                description: properties.address. This source data is supplied for Home display and must not be derived from properties.name.
               expiresAt:
                 type: [string, 'null']
                 format: date
