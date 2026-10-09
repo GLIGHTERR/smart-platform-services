@@ -50,6 +50,7 @@ export class PasswordRecoveryOutboxService implements OnModuleInit, OnModuleDest
         `WITH candidate AS (
            SELECT id FROM outbox_events
            WHERE event_type IN ('password_recovery_email', 'registration_email') AND published_at IS NULL
+             AND superseded_at IS NULL
              AND next_attempt_at <= now()
              AND (locked_at IS NULL OR locked_at < now() - interval '2 minutes')
            ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 10

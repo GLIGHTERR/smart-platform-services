@@ -142,6 +142,7 @@ export class AuthService {
   public async requestSignupOtp(
     rawEmail: string,
     context: SessionClientContext,
+    previousAttemptId?: string,
   ): Promise<OtpAcceptedResponse> {
     const email = this.normalizeEmail(rawEmail);
     const now = new Date();
@@ -176,6 +177,7 @@ export class AuthService {
       maxAttempts: this.otpMaxAttempts,
       expiresAt: new Date(now.getTime() + this.otpTtlSeconds * 1000),
       requestedIp: context.ipAddress,
+      supersededChallengeId: previousAttemptId,
       outbox: { id: randomUUID(), challengeId: attemptId, email, occurredAt: now },
     });
     return this.otpAccepted(attemptId, this.otpTtlSeconds, this.otpResendCooldownSeconds);
@@ -237,6 +239,7 @@ export class AuthService {
       email,
       phone: input.phone?.trim() || null,
       passwordHash: await this.passwords.hash(input.password),
+      displayName: input.displayName.trim().replace(/\s+/gu, ' '),
       codeHash: challenge.codeHash,
       completedAt: new Date(),
     });

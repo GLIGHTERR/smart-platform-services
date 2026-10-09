@@ -14,7 +14,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailInput'
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                previousAttemptId:
+                  type: string
+                  format: uuid
+                  description: Live attempt being superseded only when changing normalized email.
       responses:
         '202':
           description: Generic response for both registered and unregistered emails
@@ -78,7 +87,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, attemptId, code, password]
+              required: [email, attemptId, code, password, displayName]
               properties:
                 email:
                   type: string
@@ -94,8 +103,14 @@ paths:
                   minLength: 8
                   maxLength: 128
                   description: Must include lowercase, uppercase, number, and special character.
+                displayName:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                  description: Required full name, normalized by trimming and collapsing repeated whitespace.
                 phone:
                   type: string
+                  nullable: true
                   pattern: '^\+[1-9]\d{7,14}$'
                   description: Optional contact data; not a login identifier.
       responses:

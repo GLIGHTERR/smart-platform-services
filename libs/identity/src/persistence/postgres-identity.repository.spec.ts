@@ -68,6 +68,37 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     expect(JSON.stringify(query.mock.calls)).not.toContain('123456');
   });
 
+  it('supersedes the supplied registration challenge and its unclaimed outbox job in the replacement transaction', async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+    const manager = { query } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (work: (value: EntityManager) => Promise<void>) => work(manager)),
+    } as unknown as DataSource;
+    const repository = new PostgresIdentityRepository(dataSource);
+
+    await repository.replaceRegistrationChallenge({
+      id: '129124c5-c5e4-4c1e-b268-b28644046570',
+      email: 'new@example.com',
+      codeHash: 'a'.repeat(64),
+      maxAttempts: 5,
+      expiresAt: new Date('2026-09-21T10:10:00.000Z'),
+      requestedIp: '203.0.113.10',
+      supersededChallengeId: challengeId,
+      outbox: {
+        id: '239124c5-c5e4-4c1e-b268-b28644046570',
+        challengeId: '129124c5-c5e4-4c1e-b268-b28644046570',
+        email: 'new@example.com',
+        occurredAt: timestamp,
+      },
+    });
+
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(String(query.mock.calls[0]?.[0])).toContain('WHERE id = $1');
+    expect(String(query.mock.calls[1]?.[0])).toContain('superseded_at = now()');
+    expect(query.mock.calls[1]?.[1]).toEqual([challengeId]);
+    expect(String(query.mock.calls.at(-1)?.[0])).toContain("'registration_email'");
+  });
+
   it('atomically consumes the OTP, stores the hashed token, and writes a masked audit', async () => {
     const query = jest
       .fn()

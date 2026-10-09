@@ -156,10 +156,10 @@ export class PostgresIdentityRepository extends IdentityRepository {
           `
             INSERT INTO users
               (email, phone, password_hash, display_name, status, email_verified_at)
-            VALUES ($1, $2, $3, NULL, 'active', $4)
+            VALUES ($1, $2, $3, $4, 'active', $5)
             RETURNING id
           `,
-          [input.email, input.phone, input.passwordHash, input.completedAt],
+          [input.email, input.phone, input.passwordHash, input.displayName, input.completedAt],
         );
         if (!user) {
           throw new Error('User insert returned no row');
@@ -337,9 +337,23 @@ export class PostgresIdentityRepository extends IdentityRepository {
     maxAttempts: number;
     expiresAt: Date;
     requestedIp: string | null;
+    supersededChallengeId?: string;
     outbox: RegistrationOutboxInput;
   }): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
+      if (input.supersededChallengeId) {
+        await manager.query(
+          `UPDATE otp_challenges SET consumed_at = now()
+           WHERE id = $1 AND purpose = 'registration' AND consumed_at IS NULL`,
+          [input.supersededChallengeId],
+        );
+        await manager.query(
+          `UPDATE outbox_events SET superseded_at = now(), locked_at = NULL, lock_token = NULL
+           WHERE aggregate_id = $1 AND event_type = 'registration_email'
+             AND published_at IS NULL AND superseded_at IS NULL`,
+          [input.supersededChallengeId],
+        );
+      }
       await manager.query(
         `UPDATE otp_challenges SET consumed_at = now()
          WHERE email = $1 AND purpose = 'registration' AND consumed_at IS NULL`,

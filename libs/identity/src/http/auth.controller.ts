@@ -43,7 +43,7 @@ export class AuthController {
     @Body() input: SignupOtpRequestDto,
     @Req() request: Request,
   ): ReturnType<AuthService['requestSignupOtp']> {
-    return this.auth.requestSignupOtp(input.email, this.context(request));
+    return this.auth.requestSignupOtp(input.email, this.context(request), input.previousAttemptId);
   }
 
   @Post('signup/otp/verify')

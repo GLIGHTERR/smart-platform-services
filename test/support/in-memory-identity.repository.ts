@@ -90,7 +90,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
       email: input.email,
       phone: input.phone,
       passwordHash: input.passwordHash,
-      displayName: null,
+      displayName: input.displayName,
       status: 'active',
       roles: ['renter'],
     };
@@ -196,8 +196,16 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     maxAttempts: number;
     expiresAt: Date;
     requestedIp: string | null;
+    supersededChallengeId?: string;
     outbox: RegistrationOutboxInput;
   }): Promise<void> {
+    if (input.supersededChallengeId) {
+      await this.cancelOtp(input.supersededChallengeId, new Date());
+      const activeOutbox = this.registrationOutbox.filter(
+        (event) => event.challengeId !== input.supersededChallengeId,
+      );
+      this.registrationOutbox.splice(0, this.registrationOutbox.length, ...activeOutbox);
+    }
     await this.replaceOtpChallenge({
       id: input.id,
       email: input.email,
