@@ -9,13 +9,18 @@ data for new accounts and is never accepted by the production sign-in path.
 The production flow has three explicit steps and never auto-logs in:
 
 1. `POST /auth/signup/otp/request` accepts an email and returns a generic `202` response. The same
-   response shape is used when the email already has an account.
+   response shape is used when the email already has an account. When a client changes normalized
+   email, it supplies the prior `previousAttemptId`; the replacement atomically supersedes that
+   challenge and its unclaimed registration outbox work. The same normalized email reuses the active
+   attempt/cooldown and does not resend automatically.
 2. `POST /auth/signup/otp/verify` accepts the email, attempt ID and six-digit code. Its response
    confirms verification without returning an OTP, password, or token.
-3. `POST /auth/signup/complete` resubmits the in-memory OTP with a valid password, atomically creates
-   an active renter account, and returns `{ "created": true, "next": "sign_in" }`. It returns no JWT.
+3. `POST /auth/signup/complete` resubmits the in-memory OTP with a valid password and required
+   `displayName`, atomically creates an active renter account/profile, and returns
+   `{ "created": true, "next": "sign_in" }`. The name is trim/collapse normalized and no JWT is returned.
 
-The optional phone on the completion request is stored as contact data. Concurrent completion or
+The optional nullable phone on the completion request is stored as non-unique contact data and is
+validated only when present. Concurrent completion or
 duplicate-email races create at most one user and return the generic `SIGNUP_UNAVAILABLE` error.
 
 ## Sign-in and sessions

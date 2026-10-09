@@ -157,6 +157,7 @@ describe('AuthService email identity flows', () => {
       attemptId: requested.attemptId,
       code,
       password: 'Secure1!',
+      displayName: '  Nguyen   Van A  ',
       phone: '+84901234567',
     });
     return { requested, verified, completed };
@@ -182,9 +183,37 @@ describe('AuthService email identity flows', () => {
       expect.objectContaining({
         email: 'user@example.com',
         phone: '+84901234567',
+        displayName: 'Nguyen Van A',
         status: 'active',
         roles: ['renter'],
       }),
+    );
+  });
+
+  it('persists nullable non-unique phone contact data only when each verified signup completes', async () => {
+    const harness = createHarness();
+    const first = await harness.auth.requestSignupOtp('first@example.com', context);
+    const second = await harness.auth.requestSignupOtp('second@example.com', context);
+
+    for (const [email, attemptId, phone] of [
+      ['first@example.com', first.attemptId, '+84901234567'],
+      ['second@example.com', second.attemptId, '+84901234567'],
+    ] as const) {
+      const code = harness.recoveryOtpCodes.forRegistrationChallenge(attemptId);
+      await harness.auth.verifySignupOtp({ email, attemptId, code }, context);
+      await harness.auth.completeSignup({
+        email,
+        attemptId,
+        code,
+        password: 'Secure1!',
+        displayName: 'One Name',
+        phone,
+      });
+    }
+
+    expect((await harness.repository.findByEmail('first@example.com'))?.phone).toBe('+84901234567');
+    expect((await harness.repository.findByEmail('second@example.com'))?.phone).toBe(
+      '+84901234567',
     );
   });
 
@@ -221,6 +250,38 @@ describe('AuthService email identity flows', () => {
     await expect(harness.auth.requestSignupOtp('user@example.com', context)).rejects.toMatchObject({
       status: 429,
     });
+  });
+
+  it('supersedes a changed-email attempt and its pending outbox work without resending same-email OTPs', async () => {
+    const harness = createHarness();
+    const original = await harness.auth.requestSignupOtp('old@example.com', context);
+    const sameEmail = await harness.auth.requestSignupOtp(
+      ' OLD@example.com ',
+      context,
+      original.attemptId,
+    );
+    expect(sameEmail.attemptId).toBe(original.attemptId);
+    expect(harness.repository.registrationOutbox).toHaveLength(1);
+
+    const replacement = await harness.auth.requestSignupOtp(
+      'new@example.com',
+      context,
+      original.attemptId,
+    );
+    expect(replacement.attemptId).not.toBe(original.attemptId);
+    expect(harness.repository.registrationOutbox).toEqual([
+      expect.objectContaining({ challengeId: replacement.attemptId, email: 'new@example.com' }),
+    ]);
+    await expect(
+      harness.auth.verifySignupOtp(
+        {
+          email: 'old@example.com',
+          attemptId: original.attemptId,
+          code: harness.recoveryOtpCodes.forRegistrationChallenge(original.attemptId),
+        },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('queues the challenge without waiting for an unavailable email provider', async () => {
@@ -333,6 +394,7 @@ describe('AuthService email identity flows', () => {
         attemptId: input.attemptId,
         code: '000000',
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -342,12 +404,14 @@ describe('AuthService email identity flows', () => {
         attemptId: input.attemptId,
         code: input.code,
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
       harness.auth.completeSignup({
         email: input.email,
         attemptId: input.attemptId,
         code: input.code,
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
     ]);
     expect(completions.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -362,6 +426,7 @@ describe('AuthService email identity flows', () => {
         attemptId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
         code: '123456',
         password: 'Secure1!',
+        displayName: 'Nguyen Van A',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 

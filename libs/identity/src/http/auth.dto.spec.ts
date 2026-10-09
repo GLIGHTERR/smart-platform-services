@@ -44,6 +44,7 @@ describe('email auth DTOs', () => {
       attemptId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
       code: '123456',
       password,
+      displayName: 'Nguyen Van A',
     });
 
     expect(await validate(input)).not.toHaveLength(0);
@@ -55,6 +56,7 @@ describe('email auth DTOs', () => {
       attemptId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
       code: '123456',
       password: 'Secure1!',
+      displayName: '  Nguyen   Van A  ',
       phone: ' +84901234567 ',
     });
     const invalid = plainToInstance(SignupCompleteDto, {
@@ -63,9 +65,42 @@ describe('email auth DTOs', () => {
     });
 
     await expect(validate(valid)).resolves.toHaveLength(0);
+    expect(valid.displayName).toBe('Nguyen Van A');
     expect(valid.phone).toBe('+84901234567');
     expect(await validate(invalid)).toHaveLength(1);
   });
+
+  it.each([undefined, null, '   '])(
+    'rejects an absent or blank display name: %p',
+    async (displayName) => {
+      const input = plainToInstance(SignupCompleteDto, {
+        email: 'user@example.com',
+        attemptId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
+        code: '123456',
+        password: 'Secure1!',
+        displayName,
+      });
+
+      expect(await validate(input)).not.toHaveLength(0);
+    },
+  );
+
+  it.each([undefined, null, '   '])(
+    'maps an omitted, null, or blank phone to no contact value: %p',
+    async (phone) => {
+      const input = plainToInstance(SignupCompleteDto, {
+        email: 'user@example.com',
+        attemptId: '234cc3de-18ca-4b8b-a45d-522b9ec5d31e',
+        code: '123456',
+        password: 'Secure1!',
+        displayName: 'Nguyen Van A',
+        phone,
+      });
+
+      await expect(validate(input)).resolves.toHaveLength(0);
+      expect(input.phone ?? null).toBeNull();
+    },
+  );
 
   it('validates recovery challenge, reset token, password policy, and confirmation payload shape', async () => {
     const verification = plainToInstance(PasswordRecoveryVerifyDto, {

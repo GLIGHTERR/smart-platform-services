@@ -22,6 +22,7 @@ export interface CompleteEmailSignup {
   email: string;
   phone: string | null;
   passwordHash: string;
+  displayName: string;
   codeHash: string;
   completedAt: Date;
 }
@@ -149,6 +150,7 @@ export abstract class IdentityRepository {
     maxAttempts: number;
     expiresAt: Date;
     requestedIp: string | null;
+    supersededChallengeId?: string;
     outbox: RegistrationOutboxInput;
   }): Promise<void>;
   public abstract findOtpChallenge(

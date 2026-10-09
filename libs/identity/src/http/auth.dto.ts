@@ -20,6 +20,15 @@ function trimmed(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
 }
 
+function collapsedName(value: unknown): unknown {
+  return typeof value === 'string' ? value.trim().replace(/\s+/gu, ' ') : value;
+}
+
+function nullablePhone(value: unknown): unknown {
+  const phone = trimmed(value);
+  return phone === '' ? null : phone;
+}
+
 function normalizedEmail(value: unknown): unknown {
   return typeof value === 'string' ? value.trim().toLowerCase() : value;
 }
@@ -42,7 +51,11 @@ class PasswordDto {
   public password!: string;
 }
 
-export class SignupOtpRequestDto extends EmailDto {}
+export class SignupOtpRequestDto extends EmailDto {
+  @IsOptional()
+  @IsUUID()
+  public previousAttemptId?: string;
+}
 
 export class SignupOtpVerifyDto extends EmailDto {
   @IsUUID()
@@ -64,10 +77,16 @@ export class SignupCompleteDto extends PasswordDto {
   @Matches(OTP_CODE)
   public code!: string;
 
+  @Transform(({ value }): unknown => collapsedName(value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(160)
+  public displayName!: string;
+
   @IsOptional()
-  @Transform(({ value }): unknown => trimmed(value))
+  @Transform(({ value }): unknown => nullablePhone(value))
   @Matches(E164_PHONE, { message: 'phone must use E.164 format, for example +84901234567' })
-  public phone?: string;
+  public phone?: string | null;
 }
 
 export class PasswordRecoveryRequestDto extends EmailDto {}
