@@ -339,49 +339,58 @@ export class PostgresIdentityRepository extends IdentityRepository {
     requestedIp: string | null;
     supersededChallengeId?: string;
     outbox: RegistrationOutboxInput;
-  }): Promise<void> {
-    await this.dataSource.transaction(async (manager) => {
-      if (input.supersededChallengeId) {
-        await manager.query(
-          `UPDATE otp_challenges SET consumed_at = now()
+  }): Promise<boolean> {
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        if (input.supersededChallengeId) {
+          await manager.query(
+            `UPDATE otp_challenges SET consumed_at = now()
            WHERE id = $1 AND purpose = 'registration' AND consumed_at IS NULL`,
-          [input.supersededChallengeId],
-        );
-        await manager.query(
-          `UPDATE outbox_events SET superseded_at = now(), locked_at = NULL, lock_token = NULL
+            [input.supersededChallengeId],
+          );
+          await manager.query(
+            `UPDATE outbox_events SET superseded_at = now(), locked_at = NULL, lock_token = NULL
            WHERE aggregate_id = $1 AND event_type = 'registration_email'
              AND published_at IS NULL AND superseded_at IS NULL`,
-          [input.supersededChallengeId],
-        );
-      }
-      await manager.query(
-        `UPDATE otp_challenges SET consumed_at = now()
+            [input.supersededChallengeId],
+          );
+        }
+        await manager.query(
+          `UPDATE otp_challenges SET consumed_at = now()
          WHERE email = $1 AND purpose = 'registration' AND consumed_at IS NULL`,
-        [input.email],
-      );
-      await manager.query(
-        `INSERT INTO otp_challenges (id, email, phone, purpose, code_hash, max_attempts, expires_at, requested_ip)
+          [input.email],
+        );
+        await manager.query(
+          `INSERT INTO otp_challenges (id, email, phone, purpose, code_hash, max_attempts, expires_at, requested_ip)
          VALUES ($1, $2, NULL, 'registration', $3, $4, $5, $6)`,
-        [
-          input.id,
-          input.email,
-          input.codeHash,
-          input.maxAttempts,
-          input.expiresAt,
-          input.requestedIp,
-        ],
-      );
-      await manager.query(
-        `INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, occurred_at, next_attempt_at)
+          [
+            input.id,
+            input.email,
+            input.codeHash,
+            input.maxAttempts,
+            input.expiresAt,
+            input.requestedIp,
+          ],
+        );
+        await manager.query(
+          `INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, occurred_at, next_attempt_at)
          VALUES ($1, 'otp_challenge', $2, 'registration_email', $3::jsonb, $4, $4)`,
-        [
-          input.outbox.id,
-          input.outbox.challengeId,
-          JSON.stringify({ challengeId: input.outbox.challengeId, email: input.outbox.email }),
-          input.outbox.occurredAt,
-        ],
-      );
-    });
+          [
+            input.outbox.id,
+            input.outbox.challengeId,
+            JSON.stringify({ challengeId: input.outbox.challengeId, email: input.outbox.email }),
+            input.outbox.occurredAt,
+          ],
+        );
+      });
+      return true;
+    } catch (error: unknown) {
+      // A competing request committed the one permitted active challenge first.
+      if (this.isActiveRegistrationChallengeConflict(error)) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   public async findOtpChallenge(
@@ -909,6 +918,14 @@ export class PostgresIdentityRepository extends IdentityRepository {
 
   private isUniqueViolation(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+  }
+
+  private isActiveRegistrationChallengeConflict(error: unknown): boolean {
+    return (
+      this.isUniqueViolation(error) &&
+      'constraint' in (error as object) &&
+      (error as { constraint?: unknown }).constraint === 'uq_otp_challenges_active_email'
+    );
   }
 
   private updatedExactlyOneRow(result: unknown): boolean {

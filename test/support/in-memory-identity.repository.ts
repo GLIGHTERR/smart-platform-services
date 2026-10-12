@@ -198,7 +198,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     requestedIp: string | null;
     supersededChallengeId?: string;
     outbox: RegistrationOutboxInput;
-  }): Promise<void> {
+  }): Promise<boolean> {
     if (input.supersededChallengeId) {
       await this.cancelOtp(input.supersededChallengeId, new Date());
       const activeOutbox = this.registrationOutbox.filter(
@@ -217,6 +217,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
       requestedIp: input.requestedIp,
     });
     this.registrationOutbox.push(input.outbox);
+    return true;
   }
 
   public async findOtpChallenge(

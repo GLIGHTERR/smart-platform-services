@@ -99,6 +99,34 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     expect(String(query.mock.calls.at(-1)?.[0])).toContain("'registration_email'");
   });
 
+  it('reports an active-challenge unique conflict so the service can reuse its winner', async () => {
+    const query = jest
+      .fn()
+      .mockRejectedValue({ code: '23505', constraint: 'uq_otp_challenges_active_email' });
+    const manager = { query } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (work: (value: EntityManager) => Promise<void>) => work(manager)),
+    } as unknown as DataSource;
+    const repository = new PostgresIdentityRepository(dataSource);
+
+    await expect(
+      repository.replaceRegistrationChallenge({
+        id: challengeId,
+        email: 'user@example.com',
+        codeHash: 'a'.repeat(64),
+        maxAttempts: 5,
+        expiresAt: new Date('2026-09-21T10:10:00.000Z'),
+        requestedIp: '203.0.113.10',
+        outbox: {
+          id: '129124c5-c5e4-4c1e-b268-b28644046570',
+          challengeId,
+          email: 'user@example.com',
+          occurredAt: timestamp,
+        },
+      }),
+    ).resolves.toBe(false);
+  });
+
   it('atomically consumes the OTP, stores the hashed token, and writes a masked audit', async () => {
     const query = jest
       .fn()

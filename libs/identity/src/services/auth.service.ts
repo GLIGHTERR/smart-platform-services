@@ -170,7 +170,7 @@ export class AuthService {
 
     const attemptId = randomUUID();
     const code = this.recoveryOtpCodes.forRegistrationChallenge(attemptId);
-    await this.repository.replaceRegistrationChallenge({
+    const created = await this.repository.replaceRegistrationChallenge({
       id: attemptId,
       email,
       codeHash: this.hashOtp(email, 'registration', code),
@@ -180,6 +180,17 @@ export class AuthService {
       supersededChallengeId: previousAttemptId,
       outbox: { id: randomUUID(), challengeId: attemptId, email, occurredAt: now },
     });
+    if (!created) {
+      const concurrent = await this.repository.findOtpChallenge({ email }, 'registration');
+      if (concurrent) {
+        return this.otpAccepted(
+          concurrent.id,
+          Math.max(1, Math.ceil((concurrent.expiresAt.getTime() - now.getTime()) / 1000)),
+          this.otpResendCooldownSeconds,
+        );
+      }
+      throw new Error('Registration challenge conflict was not recoverable');
+    }
     return this.otpAccepted(attemptId, this.otpTtlSeconds, this.otpResendCooldownSeconds);
   }
 

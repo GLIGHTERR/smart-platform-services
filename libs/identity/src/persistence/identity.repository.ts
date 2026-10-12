@@ -152,7 +152,7 @@ export abstract class IdentityRepository {
     requestedIp: string | null;
     supersededChallengeId?: string;
     outbox: RegistrationOutboxInput;
-  }): Promise<void>;
+  }): Promise<boolean>;
   public abstract findOtpChallenge(
     recipient: { email: string } | { phone: string },
     purpose: OtpPurpose,
