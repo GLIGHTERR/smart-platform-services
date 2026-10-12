@@ -252,6 +252,46 @@ describe('AuthService email identity flows', () => {
     });
   });
 
+  it('reuses the concurrent registration challenge when the active-email constraint wins', async () => {
+    const harness = createHarness();
+    const expiresAt = new Date(Date.now() + 600_000);
+    jest
+      .spyOn(harness.repository, 'findOtpChallenge')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'concurrent-attempt',
+        email: 'user@example.com',
+        phone: null,
+        purpose: 'registration',
+        codeHash: 'hashed',
+        attemptCount: 0,
+        maxAttempts: 5,
+        expiresAt,
+        consumedAt: null,
+        createdAt: new Date(),
+        verifiedAt: null,
+      });
+    jest.spyOn(harness.repository, 'replaceRegistrationChallenge').mockResolvedValue(false);
+
+    await expect(harness.auth.requestSignupOtp('USER@example.com', context)).resolves.toEqual({
+      accepted: true,
+      attemptId: 'concurrent-attempt',
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+    });
+    expect(harness.repository.registrationOutbox).toHaveLength(0);
+  });
+
+  it('fails safely when a conflicting registration challenge cannot be reloaded', async () => {
+    const harness = createHarness();
+    jest.spyOn(harness.repository, 'replaceRegistrationChallenge').mockResolvedValue(false);
+
+    await expect(harness.auth.requestSignupOtp('user@example.com', context)).rejects.toThrow(
+      'Registration challenge conflict was not recoverable',
+    );
+    expect(harness.repository.registrationOutbox).toHaveLength(0);
+  });
+
   it('supersedes a changed-email attempt and its pending outbox work without resending same-email OTPs', async () => {
     const harness = createHarness();
     const original = await harness.auth.requestSignupOtp('old@example.com', context);
