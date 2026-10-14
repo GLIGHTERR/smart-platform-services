@@ -14,6 +14,7 @@ import { RenterSessionController } from './session.controller';
 import { ListingsController } from './listings.controller';
 import { ProfileController } from './profile.controller';
 import { ProfileReadService } from './profile-read.service';
+import { ProfileUpdateService } from './profile-update.service';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ProfileReadService } from './profile-read.service';
   controllers: [RenterSessionController, ListingsController, ProfileController],
   providers: [
     ProfileReadService,
+    ProfileUpdateService,
     ...(process.env.PASSWORD_RECOVERY_OUTBOX_CONSUMER_ENABLED === 'true'
       ? [PasswordRecoveryOutboxService]
       : []),

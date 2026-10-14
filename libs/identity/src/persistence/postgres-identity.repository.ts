@@ -31,6 +31,12 @@ interface UserRow {
   roles: ActorRole[];
 }
 
+interface RenterProfileRow {
+  email: string | null;
+  phone: string | null;
+  display_name: string | null;
+}
+
 interface OtpRow {
   id: string;
   email: string | null;
@@ -242,6 +248,30 @@ export class PostgresIdentityRepository extends IdentityRepository {
       userId,
       passwordHash,
     ]);
+  }
+
+  public async updateRenterProfile(
+    userId: string,
+    input: { displayName: string; phone: string | null },
+  ): Promise<Pick<IdentityUser, 'email' | 'phone' | 'displayName'> | null> {
+    const [row] = await this.dataSource.query<RenterProfileRow[]>(
+      `
+        UPDATE users AS u
+        SET display_name = $2, phone = $3
+        WHERE u.id = $1
+          AND u.status = 'active'
+          AND u.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = u.id AND r.code = 'renter'
+          )
+        RETURNING u.email, u.phone, u.display_name
+      `,
+      [userId, input.displayName, input.phone],
+    );
+    return row ? { email: row.email, phone: row.phone, displayName: row.display_name } : null;
   }
 
   public async markLogin(userId: string, at: Date): Promise<void> {

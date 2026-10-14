@@ -3,6 +3,7 @@ import { InMemoryIdentityRepository } from '../../../../test/support/in-memory-i
 import { PasswordHasherService } from '../security/password-hasher.service';
 import {
   DefaultIdentityAccessService,
+  DefaultIdentityProfileService,
   DefaultIdentityQueryService,
 } from './identity-query.service';
 
@@ -10,6 +11,7 @@ describe('identity query and access contracts', () => {
   async function harness(): Promise<{
     repository: InMemoryIdentityRepository;
     queries: DefaultIdentityQueryService;
+    profiles: DefaultIdentityProfileService;
     access: DefaultIdentityAccessService;
     renterId: string;
   }> {
@@ -20,6 +22,7 @@ describe('identity query and access contracts', () => {
     return {
       repository,
       queries,
+      profiles: new DefaultIdentityProfileService(repository),
       access: new DefaultIdentityAccessService(queries),
       renterId: renter.id,
     };
@@ -67,5 +70,25 @@ describe('identity query and access contracts', () => {
       repository.users.set(renterId, { ...renter, status: 'disabled' });
     }
     await expect(access.assertRenter(renterId)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('updates only the active renter profile through the public identity contract', async () => {
+    const { profiles, repository, renterId } = await harness();
+
+    await expect(
+      profiles.updateRenterProfile(renterId, {
+        displayName: 'Nguyen Van A',
+        phone: null,
+      }),
+    ).resolves.toEqual({ email: null, displayName: 'Nguyen Van A', phone: null });
+
+    const owner = repository.addActiveUser({
+      phone: '+84909999999',
+      passwordHash: 'hash',
+      roles: ['owner'],
+    });
+    await expect(
+      profiles.updateRenterProfile(owner.id, { displayName: 'Owner', phone: null }),
+    ).resolves.toBeNull();
   });
 });

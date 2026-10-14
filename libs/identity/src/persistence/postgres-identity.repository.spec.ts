@@ -14,6 +14,38 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     return { repository: new PostgresIdentityRepository(dataSource), query };
   }
 
+  it('atomically updates only an active renter and returns the database-authoritative profile', async () => {
+    const { repository, query } = repositoryWithResult([
+      {
+        email: 'renter@example.com',
+        display_name: 'Nguyen Van A',
+        phone: '+84901234567',
+      },
+    ]);
+
+    await expect(
+      repository.updateRenterProfile('renter-a', {
+        displayName: 'Nguyen Van A',
+        phone: '+84901234567',
+      }),
+    ).resolves.toEqual({
+      email: 'renter@example.com',
+      displayName: 'Nguyen Van A',
+      phone: '+84901234567',
+    });
+    expect(String(query.mock.calls[0]?.[0])).toContain('UPDATE users AS u');
+    expect(String(query.mock.calls[0]?.[0])).toContain("r.code = 'renter'");
+    expect(query.mock.calls[0]?.[1]).toEqual(['renter-a', 'Nguyen Van A', '+84901234567']);
+  });
+
+  it('does not report a missing or inactive subject as updated', async () => {
+    const { repository } = repositoryWithResult([]);
+
+    await expect(
+      repository.updateRenterProfile('missing', { displayName: 'Nguyen Van A', phone: null }),
+    ).resolves.toBeNull();
+  });
+
   it.each([
     ['verification', 'markOtpVerified'],
     ['consumption', 'consumeOtp'],

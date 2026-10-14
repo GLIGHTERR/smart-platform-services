@@ -11,6 +11,7 @@ const config: Config = {
     'libs/identity/src/security/**/*.ts',
     'apps/renter-api/src/profile.controller.ts',
     'apps/renter-api/src/profile-read.service.ts',
+    'apps/renter-api/src/profile-update.service.ts',
     'libs/contract/src/contract-query.service.ts',
     'libs/contract/src/postgres-contract.repository.ts',
     '!libs/common/src/index.ts',

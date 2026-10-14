@@ -32,6 +32,13 @@ export abstract class IdentityQueryService {
   public abstract getRenterProfile(actorId: string): Promise<RenterProfileSnapshot | null>;
 }
 
+export abstract class IdentityProfileService {
+  public abstract updateRenterProfile(
+    actorId: string,
+    input: { displayName: string; phone: string | null },
+  ): Promise<RenterProfileSnapshot | null>;
+}
+
 export abstract class IdentityAccessService {
   public abstract assertRenter(actorId: string): Promise<void>;
   public abstract assertOwner(actorId: string): Promise<void>;
