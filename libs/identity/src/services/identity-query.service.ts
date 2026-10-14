@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { IdentityRepository } from '../persistence/identity.repository';
 import {
   IdentityAccessService,
+  IdentityProfileService,
   IdentityQueryService,
   type ActorRole,
   type RenterProfileSnapshot,
@@ -30,6 +31,20 @@ export class DefaultIdentityQueryService extends IdentityQueryService {
       return null;
     }
     return { email: user.email, phone: user.phone, displayName: user.displayName };
+  }
+}
+
+@Injectable()
+export class DefaultIdentityProfileService extends IdentityProfileService {
+  public constructor(private readonly repository: IdentityRepository) {
+    super();
+  }
+
+  public updateRenterProfile(
+    actorId: string,
+    input: { displayName: string; phone: string | null },
+  ): Promise<RenterProfileSnapshot | null> {
+    return this.repository.updateRenterProfile(actorId, input);
   }
 }
 

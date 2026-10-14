@@ -317,6 +317,39 @@ paths:
           description: PROFILE_INCOMPLETE when the authenticated renter has no usable email
         '503':
           description: PROFILE_UNAVAILABLE for profile/contract dependency failures or incomplete active-rental relations
+    patch:
+      summary: Update the authenticated renter's UC-05 personal information
+      description: >-
+        Updates only the access-token subject. The request allowlist is displayName and phone;
+        unknown fields, including email and userId, are rejected. Concurrent valid requests use
+        last accepted write wins semantics.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenterProfileUpdate'
+      responses:
+        '200':
+          description: Authoritative subject profile; response is private and must not be cached.
+          headers:
+            Cache-Control:
+              schema:
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenterProfileUpdateResponse'
+        '400':
+          description: Request validation failed, including forbidden or unknown fields.
+        '401':
+          description: BEARER_TOKEN_REQUIRED or INVALID_SESSION for missing, expired, revoked, inactive, or mismatched sessions.
+        '403':
+          description: ROLE_FORBIDDEN when the actor is not a renter.
+        '503':
+          description: PROFILE_UPDATE_UNAVAILABLE for retryable persistence failures.
 components:
   securitySchemes:
     bearerAuth:
@@ -443,6 +476,40 @@ components:
                 type: string
                 format: date-time
                 description: contracts.renter_signed_at, with contracts.activated_at only as the approved legacy fallback.
+    RenterProfileUpdate:
+      type: object
+      required: [displayName, phone]
+      additionalProperties: false
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Unicode name after server trim and repeated-whitespace collapse.
+        phone:
+          type: [string, 'null']
+          pattern: '^\\+[1-9]\\d{7,14}$'
+          description: Canonical E.164 contact phone; null clears the optional contact value.
+    RenterProfileUpdateResponse:
+      type: object
+      required: [profile]
+      additionalProperties: false
+      properties:
+        profile:
+          type: object
+          required: [displayName, email, phone, avatar]
+          additionalProperties: false
+          properties:
+            displayName:
+              type: string
+            email:
+              type: string
+              format: email
+              description: Read-only normalized login identity; never accepted in the update request.
+            phone:
+              type: [string, 'null']
+            avatar:
+              type: 'null'
   responses:
     RateLimited:
       description: AUTH_RATE_LIMITED with retryAfterSeconds

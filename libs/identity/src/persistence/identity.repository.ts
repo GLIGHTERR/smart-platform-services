@@ -122,6 +122,10 @@ export abstract class IdentityRepository {
   public abstract createSocialUser(input: NewSocialUser): Promise<IdentityUser>;
   public abstract activatePhone(userId: string, verifiedAt: Date): Promise<void>;
   public abstract updatePassword(userId: string, passwordHash: string): Promise<void>;
+  public abstract updateRenterProfile(
+    userId: string,
+    input: { displayName: string; phone: string | null },
+  ): Promise<Pick<IdentityUser, 'email' | 'phone' | 'displayName'> | null>;
   public abstract markLogin(userId: string, at: Date): Promise<void>;
 
   public abstract replaceOtpChallenge(input: {

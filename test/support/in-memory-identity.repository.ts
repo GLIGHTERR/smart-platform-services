@@ -128,6 +128,19 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     }
   }
 
+  public async updateRenterProfile(
+    userId: string,
+    input: { displayName: string; phone: string | null },
+  ): Promise<Pick<IdentityUser, 'email' | 'phone' | 'displayName'> | null> {
+    const user = this.users.get(userId);
+    if (!user || user.status !== 'active' || !user.roles.includes('renter')) {
+      return null;
+    }
+    const updated = { ...user, displayName: input.displayName, phone: input.phone };
+    this.users.set(userId, updated);
+    return { email: updated.email, phone: updated.phone, displayName: updated.displayName };
+  }
+
   public async markLogin(): Promise<void> {}
 
   public async replaceOtpChallenge(input: {

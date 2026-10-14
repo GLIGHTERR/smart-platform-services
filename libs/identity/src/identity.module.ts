@@ -12,7 +12,11 @@ import {
   SocialIdentityVerifier,
   UnconfiguredSocialIdentityVerifier,
 } from './providers/social-identity-verifier.port';
-import { IdentityAccessService, IdentityQueryService } from './public/identity.contracts';
+import {
+  IdentityAccessService,
+  IdentityProfileService,
+  IdentityQueryService,
+} from './public/identity.contracts';
 import { JwtAuthGuard } from './security/jwt-auth.guard';
 import { JwtSessionService } from './security/jwt-session.service';
 import { PasswordHasherService } from './security/password-hasher.service';
@@ -22,6 +26,7 @@ import { AuthService } from './services/auth.service';
 import { RecoveryOtpCodeService } from './services/recovery-otp-code.service';
 import {
   DefaultIdentityAccessService,
+  DefaultIdentityProfileService,
   DefaultIdentityQueryService,
 } from './services/identity-query.service';
 
@@ -33,6 +38,7 @@ import {
     { provide: OtpDeliveryPort, useClass: ConfigurableOtpDeliveryService },
     { provide: SocialIdentityVerifier, useClass: UnconfiguredSocialIdentityVerifier },
     { provide: IdentityQueryService, useClass: DefaultIdentityQueryService },
+    { provide: IdentityProfileService, useClass: DefaultIdentityProfileService },
     { provide: IdentityAccessService, useClass: DefaultIdentityAccessService },
     PasswordHasherService,
     RateLimiterService,
@@ -44,6 +50,7 @@ import {
   ],
   exports: [
     IdentityQueryService,
+    IdentityProfileService,
     IdentityAccessService,
     EmailDeliveryPort,
     JwtSessionService,
