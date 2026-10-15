@@ -254,7 +254,7 @@ export class PostgresIdentityRepository extends IdentityRepository {
     userId: string,
     input: { displayName: string; phone: string | null },
   ): Promise<Pick<IdentityUser, 'email' | 'phone' | 'displayName'> | null> {
-    const [row] = await this.dataSource.query<RenterProfileRow[]>(
+    const result: unknown = await this.dataSource.query(
       `
         UPDATE users AS u
         SET display_name = $2, phone = $3
@@ -271,6 +271,7 @@ export class PostgresIdentityRepository extends IdentityRepository {
       `,
       [userId, input.displayName, input.phone],
     );
+    const row = this.returnedRow<RenterProfileRow>(result);
     return row ? { email: row.email, phone: row.phone, displayName: row.display_name } : null;
   }
 
@@ -966,5 +967,15 @@ export class PostgresIdentityRepository extends IdentityRepository {
       return result[1] === 1 && result[0].length === 1;
     }
     return result.length === 1;
+  }
+
+  private returnedRow<Row>(result: unknown): Row | null {
+    if (!Array.isArray(result)) {
+      return null;
+    }
+    if (result.length === 2 && Array.isArray(result[0]) && typeof result[1] === 'number') {
+      return result[1] === 1 ? ((result[0][0] as Row | undefined) ?? null) : null;
+    }
+    return (result[0] as Row | undefined) ?? null;
   }
 }

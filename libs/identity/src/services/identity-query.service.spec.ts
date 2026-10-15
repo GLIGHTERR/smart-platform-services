@@ -91,4 +91,23 @@ describe('identity query and access contracts', () => {
       profiles.updateRenterProfile(owner.id, { displayName: 'Owner', phone: null }),
     ).resolves.toBeNull();
   });
+
+  it('keeps an active renter profile readable before and after its subject-scoped update', async () => {
+    const { profiles, queries, renterId } = await harness();
+
+    await expect(queries.getRenterProfile(renterId)).resolves.toMatchObject({
+      displayName: 'Existing User',
+    });
+    await expect(
+      profiles.updateRenterProfile(renterId, {
+        displayName: 'Nguyen Van A',
+        phone: null,
+      }),
+    ).resolves.toEqual({ email: null, displayName: 'Nguyen Van A', phone: null });
+    await expect(queries.getRenterProfile(renterId)).resolves.toEqual({
+      email: null,
+      displayName: 'Nguyen Van A',
+      phone: null,
+    });
+  });
 });
