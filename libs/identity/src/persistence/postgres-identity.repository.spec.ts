@@ -38,6 +38,30 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     expect(query.mock.calls[0]?.[1]).toEqual(['renter-a', 'Nguyen Van A', '+84901234567']);
   });
 
+  it('returns the profile from the PostgreSQL UPDATE result shape', async () => {
+    const { repository } = repositoryWithResult([
+      [
+        {
+          email: 'renter@example.com',
+          display_name: 'Nguyen Van A',
+          phone: '+84901234567',
+        },
+      ],
+      1,
+    ]);
+
+    await expect(
+      repository.updateRenterProfile('renter-a', {
+        displayName: 'Nguyen Van A',
+        phone: '+84901234567',
+      }),
+    ).resolves.toEqual({
+      email: 'renter@example.com',
+      displayName: 'Nguyen Van A',
+      phone: '+84901234567',
+    });
+  });
+
   it('does not report a missing or inactive subject as updated', async () => {
     const { repository } = repositoryWithResult([]);
 

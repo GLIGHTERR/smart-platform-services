@@ -58,9 +58,13 @@ describe('ProfileUpdateService', () => {
     ).resolves.toMatchObject({ profile: { displayName: 'Nguyen Van A', phone: null } });
   });
 
-  it.each([null, { displayName: 'Nguyen Van A', email: null, phone: null }])(
-    'maps a missing update subject or usable email to the common invalid-session response',
-    async (profile) => {
+  it.each([
+    ['deleted renter', null],
+    ['missing renter role', null],
+    ['profile without a usable email', { displayName: 'Nguyen Van A', email: null, phone: null }],
+  ] as const)(
+    'maps a %s to the common invalid-session response',
+    async (_state, profile) => {
       const { service, identities, logger } = harness();
       identities.updateRenterProfile.mockResolvedValue(profile);
 
