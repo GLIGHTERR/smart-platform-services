@@ -1,4 +1,4 @@
-import type { CallHandler, ExecutionContext } from '@nestjs/common';
+import { BadRequestException, type CallHandler, type ExecutionContext } from '@nestjs/common';
 import type { Response } from 'express';
 import { firstValueFrom, of, throwError } from 'rxjs';
 import type { JsonLoggerService } from '../logging/json-logger.service';
@@ -6,14 +6,19 @@ import { HttpLoggingInterceptor } from './http-logging.interceptor';
 import type { RequestWithId } from './request-id.middleware';
 
 describe('HttpLoggingInterceptor', () => {
-  function createContext(type: string = 'http', originalUrl: string = '/health'): ExecutionContext {
+  function createContext(
+    type: string = 'http',
+    originalUrl: string = '/health',
+    statusCode: number = 200,
+  ): ExecutionContext {
     const request = {
       requestId: 'request-123',
       method: 'GET',
       originalUrl,
       path: new URL(originalUrl, 'http://localhost').pathname,
+      body: { password: 'body-secret' },
     } as RequestWithId;
-    const response = { statusCode: 200 } as Response;
+    const response = { statusCode } as Response;
 
     return {
       getType: (): string => type,
@@ -59,23 +64,42 @@ describe('HttpLoggingInterceptor', () => {
     expect(JSON.stringify(write.mock.calls[0][3])).not.toContain('secret-value');
   });
 
-  it('logs and rethrows failed HTTP requests', async () => {
+  it('logs an HttpException status instead of a route success status and rethrows it', async () => {
     const write = jest.fn();
     const interceptor = new HttpLoggingInterceptor({ write } as unknown as JsonLoggerService);
-    const error = new Error('request failed');
+    const error = new BadRequestException('request failed');
     const handler = { handle: () => throwError(() => error) } as CallHandler;
 
     await expect(
       firstValueFrom(
-        interceptor.intercept(createContext('http', '/health?token=secret-value'), handler),
+        interceptor.intercept(createContext('http', '/health?token=secret-value', 201), handler),
       ),
     ).rejects.toBe(error);
     expect(write).toHaveBeenCalledWith(
       'warn',
       'http_request_failed',
       'Http',
-      expect.objectContaining({ requestId: 'request-123', path: '/health' }),
+      expect.objectContaining({ requestId: 'request-123', path: '/health', statusCode: 400 }),
     );
-    expect(JSON.stringify(write.mock.calls[0][3])).not.toContain('secret-value');
+    const loggedMetadata = JSON.stringify(write.mock.calls[0][3]);
+    expect(loggedMetadata).not.toContain('secret-value');
+    expect(loggedMetadata).not.toContain('body-secret');
+  });
+
+  it('logs 500 for unexpected errors', async () => {
+    const write = jest.fn();
+    const interceptor = new HttpLoggingInterceptor({ write } as unknown as JsonLoggerService);
+    const error = new Error('request failed');
+    const handler = { handle: () => throwError(() => error) } as CallHandler;
+
+    await expect(
+      firstValueFrom(interceptor.intercept(createContext('http', '/health', 201), handler)),
+    ).rejects.toBe(error);
+    expect(write).toHaveBeenCalledWith(
+      'warn',
+      'http_request_failed',
+      'Http',
+      expect.objectContaining({ requestId: 'request-123', path: '/health', statusCode: 500 }),
+    );
   });
 });
