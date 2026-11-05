@@ -653,16 +653,15 @@ export class PostgresIdentityRepository extends IdentityRepository {
     currentSessionId: string;
     passwordHash: string;
     idempotencyKeyHash: string;
-    requestHash: string;
     changedAt: Date;
     audit: RecoveryAuditInput;
   }): Promise<PasswordChangeResult> {
     return this.dataSource.transaction(async (manager) => {
-      const inserted = await manager.query<Array<{ request_hash: string }>>(
+      const inserted = await manager.query<Array<{ user_id: string }>>(
         `INSERT INTO password_change_idempotency (user_id, key_hash, outcome, completed_at)
          VALUES ($1, $2, 'changed', $3)
          ON CONFLICT (user_id, key_hash) DO NOTHING
-         RETURNING request_hash`,
+         RETURNING user_id`,
         [input.userId, input.idempotencyKeyHash, input.changedAt],
       );
       if (!inserted[0]) {
@@ -695,7 +694,10 @@ export class PostgresIdentityRepository extends IdentityRepository {
     });
   }
 
-  public async findPasswordChangeOutcome(userId: string, idempotencyKeyHash: string): Promise<boolean> {
+  public async findPasswordChangeOutcome(
+    userId: string,
+    idempotencyKeyHash: string,
+  ): Promise<boolean> {
     const [prior] = await this.dataSource.query<Array<{ outcome: string }>>(
       `SELECT outcome FROM password_change_idempotency WHERE user_id = $1 AND key_hash = $2`,
       [userId, idempotencyKeyHash],

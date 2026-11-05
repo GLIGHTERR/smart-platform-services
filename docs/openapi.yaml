@@ -277,8 +277,8 @@ paths:
     post:
       summary: Change the authenticated subject's password and keep the current session active
       description: >-
-        Requires a unique Idempotency-Key per logical request. The completed outcome is replayed for
-        an authoritative completed result is replayed for retries. Other active sessions
+        Requires a unique Idempotency-Key per logical request. The authoritative completed result is
+        replayed for retries. Other active sessions
         are revoked, while the bearer-token session remains active. The response is private and no-store.
       security:
         - bearerAuth: []
