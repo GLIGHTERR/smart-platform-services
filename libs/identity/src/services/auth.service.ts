@@ -81,6 +81,11 @@ export interface PasswordRecoveryCompletedResponse {
   email: string;
 }
 
+export interface PasswordChangedResponse {
+  changed: true;
+  next: 'profile';
+}
+
 @Injectable()
 export class AuthService {
   private readonly otpSecret: string;
@@ -597,12 +602,36 @@ export class AuthService {
     actor: AuthenticatedActor,
     input: ChangePasswordDto,
     context: SessionClientContext,
-  ): Promise<AuthSessionTokens> {
+    idempotencyKey: string | undefined,
+  ): Promise<PasswordChangedResponse> {
+    if (!idempotencyKey || idempotencyKey.length > 128 || !/^[A-Za-z0-9_-]+$/.test(idempotencyKey)) {
+      throw new BadRequestException({
+        code: 'IDEMPOTENCY_KEY_REQUIRED',
+        message: 'A valid Idempotency-Key is required',
+      });
+    }
     const user = await this.requireUser(actor.id);
+    const now = new Date();
+    const keys = this.passwordChangeKeys(user.id, context);
+    await this.rateLimiter.assertAllowed(keys, now);
+    const idempotencyKeyHash = this.hashChangeIdempotencyKey(user.id, idempotencyKey);
+    if (await this.repository.findPasswordChangeOutcome(user.id, idempotencyKeyHash)) {
+      return { changed: true, next: 'profile' };
+    }
     if (
       !user.passwordHash ||
       !(await this.passwords.verify(input.currentPassword, user.passwordHash))
     ) {
+      await this.rateLimiter.recordFailure(keys, now);
+      await this.repository.recordRecoveryAudit({
+        eventType: 'password_change.failed',
+        userId: user.id,
+        maskedEmail: this.maskEmail(user.email ?? 'unknown@invalid'),
+        occurredAt: now,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        data: { reason: 'current_password_mismatch' },
+      });
       throw this.invalidCredentials();
     }
     if (await this.passwords.verify(input.newPassword, user.passwordHash)) {
@@ -611,10 +640,24 @@ export class AuthService {
         message: 'New password must be different from the current password',
       });
     }
-    const now = new Date();
-    await this.repository.updatePassword(user.id, await this.passwords.hash(input.newPassword));
-    await this.repository.revokeSessionsForUser(user.id, now, 'password_change');
-    return this.sessions.create(user, context);
+    await this.repository.changePasswordForCurrentSession({
+      userId: user.id,
+      currentSessionId: actor.sessionId,
+      passwordHash: await this.passwords.hash(input.newPassword),
+      idempotencyKeyHash,
+      changedAt: now,
+      audit: {
+        eventType: 'password_change.completed',
+        userId: user.id,
+        maskedEmail: this.maskEmail(user.email ?? 'unknown@invalid'),
+        occurredAt: now,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        data: { currentSessionPreserved: true, otherSessionsRevoked: true },
+      },
+    });
+    await this.rateLimiter.clear(keys);
+    return { changed: true, next: 'profile' };
   }
 
   public refresh(refreshToken: string, context: SessionClientContext): Promise<AuthSessionTokens> {
@@ -760,6 +803,27 @@ export class AuthService {
     return createHmac('sha256', this.otpSecret)
       .update(`password_reset_context:${this.deviceKey(context)}`)
       .digest('hex');
+  }
+
+  private hashChangeIdempotencyKey(userId: string, key: string): string {
+    return createHmac('sha256', this.otpSecret)
+      .update(`password_change_idempotency:${userId}:${key}`)
+      .digest('hex');
+  }
+
+  private passwordChangeKeys(userId: string, context: SessionClientContext): ThrottleKey[] {
+    const policy = {
+      limit: this.loginFailureLimit,
+      windowMs: this.loginWindowSeconds * 1000,
+      blockMs: this.loginLockSeconds * 1000,
+    };
+    return this.compactKeys([
+      { scope: 'password_change_user', value: userId, policy },
+      context.ipAddress
+        ? { scope: 'password_change_ip', value: context.ipAddress, policy: { ...policy, limit: this.loginAbuseLimit } }
+        : null,
+      { scope: 'password_change_device', value: this.deviceKey(context), policy: { ...policy, limit: this.loginAbuseLimit } },
+    ]);
   }
 
   private loginKeys(email: string, context: SessionClientContext): ThrottleKey[] {

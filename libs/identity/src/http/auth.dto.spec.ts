@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
   LoginDto,
+  ChangePasswordDto,
   PasswordRecoveryResetDto,
   PasswordRecoveryVerifyDto,
   SignupCompleteDto,
@@ -122,6 +123,19 @@ describe('email auth DTOs', () => {
       newPassword: 'password',
       confirmPassword: '',
     });
+    expect(await validate(invalid)).not.toHaveLength(0);
+  });
+
+  it('requires the D01 special-character rule for a password change', async () => {
+    const valid = plainToInstance(ChangePasswordDto, {
+      currentPassword: 'Current1!',
+      newPassword: 'Changed1!',
+    });
+    const invalid = plainToInstance(ChangePasswordDto, {
+      currentPassword: 'Current1!',
+      newPassword: 'Changed12',
+    });
+    await expect(validate(valid)).resolves.toHaveLength(0);
     expect(await validate(invalid)).not.toHaveLength(0);
   });
 });

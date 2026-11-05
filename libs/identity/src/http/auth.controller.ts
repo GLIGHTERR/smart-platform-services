@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Header,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -143,12 +145,14 @@ export class AuthController {
   @Post('password/change')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'private, no-store')
   public changePassword(
     @CurrentActor() actor: AuthenticatedActor,
     @Body() input: ChangePasswordDto,
     @Req() request: Request,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
   ): ReturnType<AuthService['changePassword']> {
-    return this.auth.changePassword(actor, input, this.context(request));
+    return this.auth.changePassword(actor, input, this.context(request), idempotencyKey);
   }
 
   @Post('token/refresh')

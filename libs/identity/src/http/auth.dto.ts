@@ -200,6 +200,7 @@ export class ChangePasswordDto {
   @Matches(/[a-z]/)
   @Matches(/[A-Z]/)
   @Matches(/\d/)
+  @Matches(/[^A-Za-z0-9]/)
   public newPassword!: string;
 }
 

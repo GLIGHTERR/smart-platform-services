@@ -84,6 +84,7 @@ export interface RegistrationOutboxInput {
 }
 
 export type PasswordResetResult = 'reset' | 'invalid';
+export type PasswordChangeResult = 'changed' | 'replayed';
 
 export interface NewSession {
   id: string;
@@ -188,6 +189,16 @@ export abstract class IdentityRepository {
     audit: RecoveryAuditInput;
   }): Promise<PasswordResetResult>;
   public abstract recordRecoveryAudit(input: RecoveryAuditInput): Promise<void>;
+
+  public abstract changePasswordForCurrentSession(input: {
+    userId: string;
+    currentSessionId: string;
+    passwordHash: string;
+    idempotencyKeyHash: string;
+    changedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordChangeResult>;
+  public abstract findPasswordChangeOutcome(userId: string, idempotencyKeyHash: string): Promise<boolean>;
 
   public abstract createSession(session: NewSession): Promise<void>;
   public abstract rotateSession(input: {

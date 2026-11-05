@@ -34,6 +34,18 @@ as SHA-256 hashes and rotate on every refresh. Reusing a rotated token revokes t
 `POST /auth/logout` revokes the current refresh-token session, while authenticated
 `POST /auth/logout/all` revokes all sessions for the actor.
 
+## UC-06 change password
+
+`POST /auth/password/change` is bearer-authenticated and subject-only: it accepts no user identifier.
+It verifies the current password with the configured slow salted hash, requires the UC-01 password
+policy (lowercase, uppercase, number, and special character), and requires an `Idempotency-Key`.
+The key is stored only as an HMAC digest; retries receive the authoritative completed outcome. A successful atomic update
+revokes every other active session, preserves the session that authenticated the request, audits no
+secret values, and returns `{ "changed": true, "next": "profile" }` with `Cache-Control: private, no-store`.
+Wrong-current-password attempts are throttled per account, IP, and device with the existing 5/15-minute
+and 20/15-minute abuse policies. UC-03 recovery remains distinct: it revokes every session and returns
+the user to Sign In.
+
 ## OTP and abuse controls
 
 | Rule                            |                            Default |

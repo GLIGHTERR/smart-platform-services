@@ -1240,6 +1240,7 @@ describe('AuthService email identity flows', () => {
         actor,
         { currentPassword: 'Wrong1!', newPassword: 'Changed1!' },
         context,
+        'change-password-wrong',
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(
@@ -1247,6 +1248,7 @@ describe('AuthService email identity flows', () => {
         actor,
         { currentPassword: 'Secure1!', newPassword: 'Secure1!' },
         context,
+        'change-password-unchanged',
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
@@ -1254,8 +1256,9 @@ describe('AuthService email identity flows', () => {
         actor,
         { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
         context,
+        'change-password-success',
       ),
-    ).resolves.toEqual(expect.objectContaining({ tokenType: 'Bearer' }));
+    ).resolves.toEqual({ changed: true, next: 'profile' });
 
     await expect(
       harness.auth.socialLogin('linkedin', { credential: 'token', role: 'owner' }, context),
@@ -1314,7 +1317,80 @@ describe('AuthService email identity flows', () => {
         { id: 'missing', roles: ['renter'], status: 'active', sessionId: 'session' },
         { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
         context,
+        'missing-user-change',
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('preserves the authenticated session, revokes other sessions, audits safely, and replays idempotently', async () => {
+    const harness = createHarness();
+    await completeEmailSignup(harness);
+    const current = await harness.auth.login({ email: 'user@example.com', password: 'Secure1!' }, context);
+    const other = await harness.auth.login(
+      { email: 'user@example.com', password: 'Secure1!' },
+      { ...context, deviceId: 'device-2' },
+    );
+    const actor = await harness.sessions.authenticateAccess(current.accessToken);
+
+    await expect(
+      harness.auth.changePassword(
+        actor,
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        context,
+        'replay-safe-change',
+      ),
+    ).resolves.toEqual({ changed: true, next: 'profile' });
+    await expect(harness.sessions.authenticateAccess(current.accessToken)).resolves.toMatchObject({ id: actor.id });
+    await expect(harness.sessions.authenticateAccess(other.accessToken)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      harness.auth.changePassword(
+        actor,
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        context,
+        'replay-safe-change',
+      ),
+    ).resolves.toEqual({ changed: true, next: 'profile' });
+    expect(harness.repository.recoveryAudits).toEqual([
+      expect.objectContaining({
+        eventType: 'password_change.completed',
+        data: { currentSessionPreserved: true, otherSessionsRevoked: true },
+      }),
+    ]);
+  });
+
+  it('throttles current-password failures and replays the authoritative idempotency outcome', async () => {
+    const harness = createHarness();
+    await completeEmailSignup(harness);
+    const login = await harness.auth.login({ email: 'user@example.com', password: 'Secure1!' }, context);
+    const actor = await harness.sessions.authenticateAccess(login.accessToken);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(
+        harness.auth.changePassword(actor, { currentPassword: 'Wrong1!', newPassword: 'Changed1!' }, context, `wrong-${attempt}`),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    }
+    await expect(
+      harness.auth.changePassword(actor, { currentPassword: 'Secure1!', newPassword: 'Changed1!' }, context, 'blocked'),
+    ).rejects.toMatchObject({ response: { code: 'AUTH_RATE_LIMITED' } });
+
+    const fresh = createHarness();
+    await completeEmailSignup(fresh);
+    const freshLogin = await fresh.auth.login({ email: 'user@example.com', password: 'Secure1!' }, context);
+    const freshActor = await fresh.sessions.authenticateAccess(freshLogin.accessToken);
+    await expect(
+      fresh.auth.changePassword(freshActor, { currentPassword: 'Secure1!', newPassword: 'Changed1!' }, context, 'same-key'),
+    ).resolves.toEqual({ changed: true, next: 'profile' });
+    await expect(
+      fresh.auth.changePassword(freshActor, { currentPassword: 'Changed1!', newPassword: 'Other2!' }, context, 'same-key'),
+    ).resolves.toEqual({ changed: true, next: 'profile' });
+  });
+
+  it('requires an idempotency key', async () => {
+    const harness = createHarness();
+    await completeEmailSignup(harness);
+    const login = await harness.auth.login({ email: 'user@example.com', password: 'Secure1!' }, context);
+    const actor = await harness.sessions.authenticateAccess(login.accessToken);
+    await expect(
+      harness.auth.changePassword(actor, { currentPassword: 'Secure1!', newPassword: 'Changed1!' }, context, undefined),
+    ).rejects.toMatchObject({ response: { code: 'IDEMPOTENCY_KEY_REQUIRED' } });
   });
 });

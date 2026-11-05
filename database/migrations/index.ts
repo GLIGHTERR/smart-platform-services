@@ -5,6 +5,7 @@ import { PasswordRecovery1700000003000 } from './1700000003000-password-recovery
 import { PasswordRecoveryOutbox1700000004000 } from './1700000004000-password-recovery-outbox';
 import { ContractActiveLifecycle1700000005000 } from './1700000005000-contract-active-lifecycle';
 import { SignupChallengeSupersession1700000006000 } from './1700000006000-signup-challenge-supersession';
+import { PasswordChange1700000007000 } from './1700000007000-password-change';
 
 export const platformMigrations = [
   InitialPlatformSchema1700000000000,
@@ -14,4 +15,5 @@ export const platformMigrations = [
   PasswordRecoveryOutbox1700000004000,
   ContractActiveLifecycle1700000005000,
   SignupChallengeSupersession1700000006000,
+  PasswordChange1700000007000,
 ];

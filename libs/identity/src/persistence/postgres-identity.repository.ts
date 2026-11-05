@@ -12,6 +12,7 @@ import {
   type OtpChallengeRecord,
   type OtpPurpose,
   type PasswordRecoveryOutboxInput,
+  type PasswordChangeResult,
   type RegistrationOutboxInput,
   type PasswordResetResult,
   type PasswordResetTokenRecord,
@@ -645,6 +646,61 @@ export class PostgresIdentityRepository extends IdentityRepository {
 
   public recordRecoveryAudit(input: RecoveryAuditInput): Promise<void> {
     return this.insertRecoveryAudit(this.dataSource.manager, input);
+  }
+
+  public async changePasswordForCurrentSession(input: {
+    userId: string;
+    currentSessionId: string;
+    passwordHash: string;
+    idempotencyKeyHash: string;
+    requestHash: string;
+    changedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordChangeResult> {
+    return this.dataSource.transaction(async (manager) => {
+      const inserted = await manager.query<Array<{ request_hash: string }>>(
+        `INSERT INTO password_change_idempotency (user_id, key_hash, outcome, completed_at)
+         VALUES ($1, $2, 'changed', $3)
+         ON CONFLICT (user_id, key_hash) DO NOTHING
+         RETURNING request_hash`,
+        [input.userId, input.idempotencyKeyHash, input.changedAt],
+      );
+      if (!inserted[0]) {
+        const [prior] = await manager.query<Array<{ outcome: string }>>(
+          `SELECT outcome FROM password_change_idempotency WHERE user_id = $1 AND key_hash = $2 FOR UPDATE`,
+          [input.userId, input.idempotencyKeyHash],
+        );
+        return prior ? 'replayed' : 'changed';
+      }
+      const updated = await manager.query<Array<{ id: string }>>(
+        `UPDATE users SET password_hash = $2
+         WHERE id = $1 AND status = 'active' AND deleted_at IS NULL AND password_hash IS NOT NULL
+         RETURNING id`,
+        [input.userId, input.passwordHash],
+      );
+      const [current] = await manager.query<Array<{ id: string }>>(
+        `SELECT id FROM auth_sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > $3 FOR UPDATE`,
+        [input.currentSessionId, input.userId, input.changedAt],
+      );
+      if (!updated[0] || !current) {
+        throw new Error('Authenticated password change session became invalid');
+      }
+      await manager.query(
+        `UPDATE auth_sessions SET revoked_at = $3, revoke_reason = 'password_change'
+         WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL`,
+        [input.userId, input.currentSessionId, input.changedAt],
+      );
+      await this.insertRecoveryAudit(manager, input.audit);
+      return 'changed';
+    });
+  }
+
+  public async findPasswordChangeOutcome(userId: string, idempotencyKeyHash: string): Promise<boolean> {
+    const [prior] = await this.dataSource.query<Array<{ outcome: string }>>(
+      `SELECT outcome FROM password_change_idempotency WHERE user_id = $1 AND key_hash = $2`,
+      [userId, idempotencyKeyHash],
+    );
+    return Boolean(prior);
   }
 
   public async createSession(session: NewSession): Promise<void> {
