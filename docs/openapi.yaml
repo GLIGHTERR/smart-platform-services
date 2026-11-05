@@ -298,7 +298,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [currentPassword, newPassword]
+              required: [currentPassword, newPassword, confirmPassword]
               properties:
                 currentPassword:
                   type: string
@@ -310,6 +310,12 @@ paths:
                   minLength: 8
                   maxLength: 128
                   description: Must include lowercase, uppercase, number, and special character.
+                confirmPassword:
+                  type: string
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 128
+                  description: Must exactly match newPassword; no trimming or normalization.
       responses:
         '200':
           description: Password changed; current session remains signed in and the client returns to Profile.
@@ -328,9 +334,11 @@ paths:
                   next:
                     const: profile
         '400':
-          description: Password policy, unchanged-password, or missing idempotency key error
+          description: Password policy, confirmation mismatch, unchanged-password, or missing idempotency key error
         '401':
           description: BEARER_TOKEN_REQUIRED, INVALID_SESSION, or INVALID_CREDENTIALS
+        '409':
+          description: PASSWORD_CHANGE_CONFLICT; credentials changed concurrently. No mutation committed by this request.
         '429':
           $ref: '#/components/responses/RateLimited'
   /auth/token/refresh:

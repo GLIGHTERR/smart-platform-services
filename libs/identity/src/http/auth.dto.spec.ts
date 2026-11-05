@@ -1,4 +1,5 @@
 import { plainToInstance } from 'class-transformer';
+import { ValidationPipe } from '@nestjs/common';
 import { validate } from 'class-validator';
 import {
   LoginDto,
@@ -129,13 +130,70 @@ describe('email auth DTOs', () => {
   it('requires the D01 special-character rule for a password change', async () => {
     const valid = plainToInstance(ChangePasswordDto, {
       currentPassword: 'Current1!',
+      confirmPassword: 'Changed1!',
       newPassword: 'Changed1!',
     });
     const invalid = plainToInstance(ChangePasswordDto, {
       currentPassword: 'Current1!',
+      confirmPassword: 'Changed1!',
       newPassword: 'Changed12',
     });
     await expect(validate(valid)).resolves.toHaveLength(0);
     expect(await validate(invalid)).not.toHaveLength(0);
+  });
+
+  it('accepts canonical confirmation through the production whitelist and rejects missing/invalid input', async () => {
+    const pipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    });
+    const metadata = { type: 'body' as const, metatype: ChangePasswordDto };
+    const body = {
+      currentPassword: 'Current1!',
+      newPassword: 'Changed1!',
+      confirmPassword: 'Changed1!',
+    };
+    await expect(pipe.transform(body, metadata)).resolves.toEqual(body);
+    for (const confirmPassword of [undefined, null, '', 123, 'a'.repeat(129)]) {
+      await expect(pipe.transform({ ...body, confirmPassword }, metadata)).rejects.toBeDefined();
+    }
+    await expect(
+      pipe.transform({ ...body, userId: 'another-subject' }, metadata),
+    ).rejects.toBeDefined();
+  });
+
+  it.each(['Aa1!aaaa', `Aa1!${'x'.repeat(124)}`, ' Aa1!aaa '])(
+    'accepts D01 boundaries without transforming password characters',
+    async (password) => {
+      const input = plainToInstance(ChangePasswordDto, {
+        currentPassword: ' Current1! ',
+        newPassword: password,
+        confirmPassword: password,
+      });
+      expect(await validate(input)).toHaveLength(0);
+      expect(input.newPassword).toBe(password);
+      expect(input.confirmPassword).toBe(password);
+      expect(input.currentPassword).toBe(' Current1! ');
+    },
+  );
+
+  it.each([
+    'Aa1!aaa',
+    `Aa1!${'x'.repeat(125)}`,
+    'PASSWORD1!',
+    'password1!',
+    'Password!',
+    'Password1',
+    '',
+    null,
+    123,
+  ])('rejects invalid D01 input %p', async (password) => {
+    const input = plainToInstance(ChangePasswordDto, {
+      currentPassword: 'Current1!',
+      newPassword: password,
+      confirmPassword: password,
+    });
+    expect(await validate(input)).not.toHaveLength(0);
   });
 });

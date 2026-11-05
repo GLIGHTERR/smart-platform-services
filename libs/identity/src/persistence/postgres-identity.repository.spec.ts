@@ -305,9 +305,10 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     const userId = '234cc3de-18ca-4b8b-a45d-522b9ec5d31e';
     const query = jest
       .fn()
-      .mockResolvedValueOnce([{ user_id: userId }])
       .mockResolvedValueOnce([{ id: userId }])
       .mockResolvedValueOnce([{ id: 'current-session' }])
+      .mockResolvedValueOnce([{ user_id: userId }])
+      .mockResolvedValueOnce([[{ id: userId }], 1])
       .mockResolvedValue(undefined);
     const manager = { query } as unknown as EntityManager;
     const dataSource = {
@@ -322,6 +323,7 @@ describe('PostgresIdentityRepository OTP mutations', () => {
         userId,
         currentSessionId: 'current-session',
         passwordHash: 'new-password-hash',
+        expectedPasswordHash: 'old-password-hash',
         idempotencyKeyHash: 'a'.repeat(64),
         changedAt: timestamp,
         audit: {
@@ -335,9 +337,9 @@ describe('PostgresIdentityRepository OTP mutations', () => {
       }),
     ).resolves.toBe('changed');
 
-    expect(String(query.mock.calls[0]?.[0])).toContain('RETURNING user_id');
+    expect(String(query.mock.calls[2]?.[0])).toContain('RETURNING user_id');
     expect(String(query.mock.calls[0]?.[0])).not.toContain('request_hash');
-    expect(String(query.mock.calls[3]?.[0])).toContain('id <> $2');
-    expect(String(query.mock.calls[4]?.[0])).toContain('INSERT INTO audit_logs');
+    expect(String(query.mock.calls[4]?.[0])).toContain('id <> $2');
+    expect(String(query.mock.calls[5]?.[0])).toContain('INSERT INTO audit_logs');
   });
 });

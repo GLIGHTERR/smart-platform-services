@@ -1238,7 +1238,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Wrong1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Wrong1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'change-password-wrong',
       ),
@@ -1246,7 +1246,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Secure1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Secure1!', confirmPassword: 'Secure1!' },
         context,
         'change-password-unchanged',
       ),
@@ -1254,7 +1254,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'change-password-success',
       ),
@@ -1315,7 +1315,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         { id: 'missing', roles: ['renter'], status: 'active', sessionId: 'session' },
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'missing-user-change',
       ),
@@ -1338,7 +1338,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'replay-safe-change',
       ),
@@ -1352,7 +1352,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'replay-safe-change',
       ),
@@ -1377,7 +1377,7 @@ describe('AuthService email identity flows', () => {
       await expect(
         harness.auth.changePassword(
           actor,
-          { currentPassword: 'Wrong1!', newPassword: 'Changed1!' },
+          { currentPassword: 'Wrong1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
           context,
           `wrong-${attempt}`,
         ),
@@ -1386,7 +1386,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'blocked',
       ),
@@ -1402,7 +1402,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       fresh.auth.changePassword(
         freshActor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         'same-key',
       ),
@@ -1410,12 +1410,43 @@ describe('AuthService email identity flows', () => {
     await expect(
       fresh.auth.changePassword(
         freshActor,
-        { currentPassword: 'Changed1!', newPassword: 'Other2!' },
+        { currentPassword: 'Changed1!', newPassword: 'Other2!', confirmPassword: 'Other2!' },
         context,
         'same-key',
       ),
     ).resolves.toEqual({ changed: true, next: 'profile' });
   });
+
+  it.each([undefined, 'Different1!', 'Changed1! '])(
+    'rejects missing or non-exact confirmation before mutation',
+    async (confirmPassword) => {
+      const harness = createHarness();
+      await completeEmailSignup(harness);
+      const login = await harness.auth.login(
+        { email: 'user@example.com', password: 'Secure1!' },
+        context,
+      );
+      const actor = await harness.sessions.authenticateAccess(login.accessToken);
+      const mutation = jest.spyOn(harness.repository, 'changePasswordForCurrentSession');
+      await expect(
+        harness.auth.changePassword(
+          actor,
+          {
+            currentPassword: 'Secure1!',
+            newPassword: 'Changed1!',
+            confirmPassword,
+          } as never,
+          context,
+          'confirmation',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mutation).not.toHaveBeenCalled();
+      expect(harness.repository.recoveryAudits).toHaveLength(0);
+      await expect(
+        harness.auth.login({ email: 'user@example.com', password: 'Secure1!' }, context),
+      ).resolves.toBeDefined();
+    },
+  );
 
   it('requires an idempotency key', async () => {
     const harness = createHarness();
@@ -1428,7 +1459,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         context,
         undefined,
       ),
@@ -1448,7 +1479,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Wrong1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Wrong1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         noIpContext,
         'phone-only-failure',
       ),
@@ -1456,7 +1487,7 @@ describe('AuthService email identity flows', () => {
     await expect(
       harness.auth.changePassword(
         actor,
-        { currentPassword: 'Secure1!', newPassword: 'Changed1!' },
+        { currentPassword: 'Secure1!', newPassword: 'Changed1!', confirmPassword: 'Changed1!' },
         noIpContext,
         'phone-only-success',
       ),

@@ -17,6 +17,7 @@ import { CurrentActor } from '../security/auth-context';
 import { JwtAuthGuard } from '../security/jwt-auth.guard';
 import type { SessionClientContext } from '../security/jwt-session.service';
 import { AuthService } from '../services/auth.service';
+import { PrivateNoStoreGuard } from './private-no-store.guard';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
@@ -143,7 +144,7 @@ export class AuthController {
   }
 
   @Post('password/change')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(PrivateNoStoreGuard, JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Header('Cache-Control', 'private, no-store')
   public changePassword(

@@ -202,6 +202,11 @@ export class ChangePasswordDto {
   @Matches(/\d/)
   @Matches(/[^A-Za-z0-9]/)
   public newPassword!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  public confirmPassword!: string;
 }
 
 export class RefreshTokenDto {

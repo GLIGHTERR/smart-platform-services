@@ -467,6 +467,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   public async changePasswordForCurrentSession(input: {
     userId: string;
     currentSessionId: string;
+    expectedPasswordHash: string;
     passwordHash: string;
     idempotencyKeyHash: string;
     changedAt: Date;
@@ -481,9 +482,16 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     if (!user || !current || current.userId !== input.userId || current.revokedAt) {
       throw new Error('Authenticated password change session became invalid');
     }
+    if (user.passwordHash !== input.expectedPasswordHash) {
+      throw new Error('Password change conflict');
+    }
     this.users.set(user.id, { ...user, passwordHash: input.passwordHash });
     for (const [sessionId, session] of this.sessions) {
-      if (session.userId === input.userId && sessionId !== input.currentSessionId && !session.revokedAt) {
+      if (
+        session.userId === input.userId &&
+        sessionId !== input.currentSessionId &&
+        !session.revokedAt
+      ) {
         this.sessions.set(sessionId, { ...session, revokedAt: input.changedAt });
       }
     }
@@ -492,7 +500,10 @@ export class InMemoryIdentityRepository extends IdentityRepository {
     return 'changed';
   }
 
-  public async findPasswordChangeOutcome(userId: string, idempotencyKeyHash: string): Promise<boolean> {
+  public async findPasswordChangeOutcome(
+    userId: string,
+    idempotencyKeyHash: string,
+  ): Promise<boolean> {
     return this.passwordChangeIdempotency.has(`${userId}:${idempotencyKeyHash}`);
   }
 

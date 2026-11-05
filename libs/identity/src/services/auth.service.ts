@@ -604,7 +604,17 @@ export class AuthService {
     context: SessionClientContext,
     idempotencyKey: string | undefined,
   ): Promise<PasswordChangedResponse> {
-    if (!idempotencyKey || idempotencyKey.length > 128 || !/^[A-Za-z0-9_-]+$/.test(idempotencyKey)) {
+    if (input.newPassword !== input.confirmPassword) {
+      throw new BadRequestException({
+        code: 'PASSWORD_CONFIRMATION_MISMATCH',
+        message: 'Password confirmation must match',
+      });
+    }
+    if (
+      !idempotencyKey ||
+      idempotencyKey.length > 128 ||
+      !/^[A-Za-z0-9_-]+$/.test(idempotencyKey)
+    ) {
       throw new BadRequestException({
         code: 'IDEMPOTENCY_KEY_REQUIRED',
         message: 'A valid Idempotency-Key is required',
@@ -643,6 +653,7 @@ export class AuthService {
     await this.repository.changePasswordForCurrentSession({
       userId: user.id,
       currentSessionId: actor.sessionId,
+      expectedPasswordHash: user.passwordHash,
       passwordHash: await this.passwords.hash(input.newPassword),
       idempotencyKeyHash,
       changedAt: now,
@@ -820,9 +831,17 @@ export class AuthService {
     return this.compactKeys([
       { scope: 'password_change_user', value: userId, policy },
       context.ipAddress
-        ? { scope: 'password_change_ip', value: context.ipAddress, policy: { ...policy, limit: this.loginAbuseLimit } }
+        ? {
+            scope: 'password_change_ip',
+            value: context.ipAddress,
+            policy: { ...policy, limit: this.loginAbuseLimit },
+          }
         : null,
-      { scope: 'password_change_device', value: this.deviceKey(context), policy: { ...policy, limit: this.loginAbuseLimit } },
+      {
+        scope: 'password_change_device',
+        value: this.deviceKey(context),
+        policy: { ...policy, limit: this.loginAbuseLimit },
+      },
     ]);
   }
 

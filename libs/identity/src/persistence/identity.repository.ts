@@ -193,12 +193,16 @@ export abstract class IdentityRepository {
   public abstract changePasswordForCurrentSession(input: {
     userId: string;
     currentSessionId: string;
+    expectedPasswordHash: string;
     passwordHash: string;
     idempotencyKeyHash: string;
     changedAt: Date;
     audit: RecoveryAuditInput;
   }): Promise<PasswordChangeResult>;
-  public abstract findPasswordChangeOutcome(userId: string, idempotencyKeyHash: string): Promise<boolean>;
+  public abstract findPasswordChangeOutcome(
+    userId: string,
+    idempotencyKeyHash: string,
+  ): Promise<boolean>;
 
   public abstract createSession(session: NewSession): Promise<void>;
   public abstract rotateSession(input: {
