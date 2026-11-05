@@ -40,6 +40,7 @@ const REQUIRED_TABLES = [
   'media_files',
   'audit_logs',
   'password_reset_tokens',
+  'password_change_idempotency',
   'outbox_events',
 ] as const;
 

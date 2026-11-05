@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import type { ActorRole, ActorStatus, SocialProvider } from '../public/identity.contracts';
@@ -12,6 +12,7 @@ import {
   type OtpChallengeRecord,
   type OtpPurpose,
   type PasswordRecoveryOutboxInput,
+  type PasswordChangeResult,
   type RegistrationOutboxInput,
   type PasswordResetResult,
   type PasswordResetTokenRecord,
@@ -647,6 +648,76 @@ export class PostgresIdentityRepository extends IdentityRepository {
     return this.insertRecoveryAudit(this.dataSource.manager, input);
   }
 
+  public async changePasswordForCurrentSession(input: {
+    userId: string;
+    currentSessionId: string;
+    expectedPasswordHash: string;
+    passwordHash: string;
+    idempotencyKeyHash: string;
+    changedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordChangeResult> {
+    return this.dataSource.transaction(async (manager) => {
+      // All credential changes and refresh rotations acquire the user lock first.
+      // READ COMMITTED then sees every replacement committed by an earlier rotation.
+      const [user] = await manager.query<Array<{ id: string }>>(
+        `SELECT id FROM users WHERE id = $1 AND status = 'active'
+         AND deleted_at IS NULL AND password_hash IS NOT NULL FOR UPDATE`,
+        [input.userId],
+      );
+      if (!user) {
+        throw new UnauthorizedException({ code: 'INVALID_SESSION', message: 'Invalid session' });
+      }
+      const [current] = await manager.query<Array<{ id: string }>>(
+        `SELECT id FROM auth_sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > $3 FOR UPDATE`,
+        [input.currentSessionId, input.userId, input.changedAt],
+      );
+      if (!current) {
+        throw new UnauthorizedException({ code: 'INVALID_SESSION', message: 'Invalid session' });
+      }
+      const inserted = await manager.query<Array<{ user_id: string }>>(
+        `INSERT INTO password_change_idempotency (user_id, key_hash, outcome, completed_at)
+         VALUES ($1, $2, 'changed', $3)
+         ON CONFLICT (user_id, key_hash) DO NOTHING
+         RETURNING user_id`,
+        [input.userId, input.idempotencyKeyHash, input.changedAt],
+      );
+      if (!inserted[0]) {
+        return 'replayed';
+      }
+      const updated: unknown = await manager.query(
+        `UPDATE users SET password_hash = $2
+         WHERE id = $1 AND password_hash = $3
+         RETURNING id`,
+        [input.userId, input.passwordHash, input.expectedPasswordHash],
+      );
+      if (!this.updatedExactlyOneRow(updated)) {
+        throw new ConflictException({
+          code: 'PASSWORD_CHANGE_CONFLICT',
+          message: 'Password change conflicted; retry with current credentials',
+        });
+      }
+      await manager.query(
+        `UPDATE auth_sessions SET revoked_at = $3, revoke_reason = 'password_change'
+         WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL`,
+        [input.userId, input.currentSessionId, input.changedAt],
+      );
+      await this.insertRecoveryAudit(manager, input.audit);
+      return 'changed';
+    });
+  }
+
+  public async findPasswordChangeOutcome(
+    userId: string,
+    idempotencyKeyHash: string,
+  ): Promise<boolean> {
+    const [prior] = await this.dataSource.query<Array<{ outcome: string }>>(
+      `SELECT outcome FROM password_change_idempotency WHERE user_id = $1 AND key_hash = $2`,
+      [userId, idempotencyKeyHash],
+    );
+    return Boolean(prior);
+  }
+
   public async createSession(session: NewSession): Promise<void> {
     await this.insertSession(this.dataSource.manager, session);
   }
@@ -659,6 +730,11 @@ export class PostgresIdentityRepository extends IdentityRepository {
     usedAt: Date;
   }): Promise<SessionRotationResult> {
     return this.dataSource.transaction(async (manager) => {
+      const [user] = await manager.query<Array<{ id: string }>>(
+        `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
+        [input.replacement.userId],
+      );
+      if (!user) return 'missing';
       const [current] = await manager.query<SessionRow[]>(
         `
           SELECT id, family_id, user_id, expires_at, revoked_at

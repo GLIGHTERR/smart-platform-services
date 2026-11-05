@@ -273,6 +273,74 @@ paths:
           description: Password policy, confirmation, or unchanged-password error
         '401':
           description: PASSWORD_RESET_TOKEN_INVALID
+  /auth/password/change:
+    post:
+      summary: Change the authenticated subject's password and keep the current session active
+      description: >-
+        Requires a unique Idempotency-Key per logical request. The authoritative completed result is
+        replayed for retries. Other active sessions
+        are revoked, while the bearer-token session remains active. The response is private and no-store.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[A-Za-z0-9_-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword, confirmPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  writeOnly: true
+                  maxLength: 128
+                newPassword:
+                  type: string
+                  writeOnly: true
+                  minLength: 8
+                  maxLength: 128
+                  description: Must include lowercase, uppercase, number, and special character.
+                confirmPassword:
+                  type: string
+                  writeOnly: true
+                  minLength: 1
+                  maxLength: 128
+                  description: Must exactly match newPassword; no trimming or normalization.
+      responses:
+        '200':
+          description: Password changed; current session remains signed in and the client returns to Profile.
+          headers:
+            Cache-Control:
+              schema:
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changed, next]
+                properties:
+                  changed:
+                    const: true
+                  next:
+                    const: profile
+        '400':
+          description: Password policy, confirmation mismatch, unchanged-password, or missing idempotency key error
+        '401':
+          description: BEARER_TOKEN_REQUIRED, INVALID_SESSION, or INVALID_CREDENTIALS
+        '409':
+          description: PASSWORD_CHANGE_CONFLICT; credentials changed concurrently. No mutation committed by this request.
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /auth/token/refresh:
     post:
       summary: Rotate a refresh token

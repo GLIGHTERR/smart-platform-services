@@ -300,4 +300,46 @@ describe('PostgresIdentityRepository OTP mutations', () => {
     expect(String(query.mock.calls[4]?.[0])).toContain('INSERT INTO audit_logs');
     expect(String(query.mock.calls[5]?.[0])).toContain('INSERT INTO audit_logs');
   });
+
+  it('records the authoritative password-change outcome before revoking only other sessions', async () => {
+    const userId = '234cc3de-18ca-4b8b-a45d-522b9ec5d31e';
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce([{ id: userId }])
+      .mockResolvedValueOnce([{ id: 'current-session' }])
+      .mockResolvedValueOnce([{ user_id: userId }])
+      .mockResolvedValueOnce([[{ id: userId }], 1])
+      .mockResolvedValue(undefined);
+    const manager = { query } as unknown as EntityManager;
+    const dataSource = {
+      transaction: jest.fn(async (work: (value: EntityManager) => Promise<string>) =>
+        work(manager),
+      ),
+    } as unknown as DataSource;
+    const repository = new PostgresIdentityRepository(dataSource);
+
+    await expect(
+      repository.changePasswordForCurrentSession({
+        userId,
+        currentSessionId: 'current-session',
+        passwordHash: 'new-password-hash',
+        expectedPasswordHash: 'old-password-hash',
+        idempotencyKeyHash: 'a'.repeat(64),
+        changedAt: timestamp,
+        audit: {
+          eventType: 'password_change.completed',
+          userId,
+          maskedEmail: 'us**@example.com',
+          occurredAt: timestamp,
+          ipAddress: '203.0.113.10',
+          userAgent: 'jest',
+        },
+      }),
+    ).resolves.toBe('changed');
+
+    expect(String(query.mock.calls[2]?.[0])).toContain('RETURNING user_id');
+    expect(String(query.mock.calls[0]?.[0])).not.toContain('request_hash');
+    expect(String(query.mock.calls[4]?.[0])).toContain('id <> $2');
+    expect(String(query.mock.calls[5]?.[0])).toContain('INSERT INTO audit_logs');
+  });
 });
