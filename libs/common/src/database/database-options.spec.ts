@@ -38,6 +38,7 @@ describe('createDatabaseOptions', () => {
       'PasswordRecoveryOutbox1700000004000',
       'ContractActiveLifecycle1700000005000',
       'SignupChallengeSupersession1700000006000',
+      'PasswordChange1700000007000',
     ]);
   });
 

@@ -10,6 +10,7 @@ import {
   type OtpChallengeRecord,
   type OtpPurpose,
   type PasswordResetResult,
+  type PasswordChangeResult,
   type PasswordResetTokenRecord,
   type RecoveryAuditInput,
   type PasswordRecoveryOutboxInput,
@@ -33,6 +34,7 @@ export class InMemoryIdentityRepository extends IdentityRepository {
   public readonly recoveryAudits: RecoveryAuditInput[] = [];
   public readonly recoveryOutbox: PasswordRecoveryOutboxInput[] = [];
   public readonly registrationOutbox: RegistrationOutboxInput[] = [];
+  private readonly passwordChangeIdempotency = new Set<string>();
 
   public async findByPhone(phone: string): Promise<IdentityUser | null> {
     return [...this.users.values()].find((user) => user.phone === phone) ?? null;
@@ -460,6 +462,49 @@ export class InMemoryIdentityRepository extends IdentityRepository {
         this.sessions.set(sessionId, { ...session, revokedAt });
       }
     }
+  }
+
+  public async changePasswordForCurrentSession(input: {
+    userId: string;
+    currentSessionId: string;
+    expectedPasswordHash: string;
+    passwordHash: string;
+    idempotencyKeyHash: string;
+    changedAt: Date;
+    audit: RecoveryAuditInput;
+  }): Promise<PasswordChangeResult> {
+    const key = `${input.userId}:${input.idempotencyKeyHash}`;
+    if (this.passwordChangeIdempotency.has(key)) {
+      return 'replayed';
+    }
+    const user = this.users.get(input.userId);
+    const current = this.sessions.get(input.currentSessionId);
+    if (!user || !current || current.userId !== input.userId || current.revokedAt) {
+      throw new Error('Authenticated password change session became invalid');
+    }
+    if (user.passwordHash !== input.expectedPasswordHash) {
+      throw new Error('Password change conflict');
+    }
+    this.users.set(user.id, { ...user, passwordHash: input.passwordHash });
+    for (const [sessionId, session] of this.sessions) {
+      if (
+        session.userId === input.userId &&
+        sessionId !== input.currentSessionId &&
+        !session.revokedAt
+      ) {
+        this.sessions.set(sessionId, { ...session, revokedAt: input.changedAt });
+      }
+    }
+    this.passwordChangeIdempotency.add(key);
+    this.recoveryAudits.push(input.audit);
+    return 'changed';
+  }
+
+  public async findPasswordChangeOutcome(
+    userId: string,
+    idempotencyKeyHash: string,
+  ): Promise<boolean> {
+    return this.passwordChangeIdempotency.has(`${userId}:${idempotencyKeyHash}`);
   }
 
   public async findThrottle(scope: string, keyHash: string): Promise<ThrottleBucket | null> {
