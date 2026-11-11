@@ -10,6 +10,12 @@ monorepo with four independently deployable entrypoints:
 | `admin-api`  |         3003 | SmartAdmin APIs                                    |
 | `worker`     |          N/A | Outbox, notification and scheduled background work |
 
+Each API process selects its listener port in this order: `PORT`, its service-specific
+`RENTER_API_PORT` / `OWNER_API_PORT` / `ADMIN_API_PORT`, then the default above.
+Render's injected `PORT` therefore takes precedence even when a service port is configured.
+`PORT` must be an integer from 1 to 65535; invalid values fail startup validation.
+Leave `PORT` unset when running multiple APIs locally to keep their separate service ports.
+
 ## Architecture
 
 The core domains are `identity`, `property`, `booking`, `contract`, `billing`, `payment`

@@ -12,6 +12,50 @@ describe('environment configuration', () => {
     OTP_HASH_SECRET: 'test-otp-secret-at-least-32-characters',
   };
 
+  describe('independent API listener ports', () => {
+    const original = process.env;
+    afterEach(() => {
+      process.env = original;
+    });
+
+    it.each([
+      [{}, { renter: 3001, owner: 3002, admin: 3003 }],
+      [
+        { RENTER_API_PORT: '3101', OWNER_API_PORT: '3102', ADMIN_API_PORT: '3103' },
+        { renter: 3101, owner: 3102, admin: 3103 },
+      ],
+      [{ PORT: '10000' }, { renter: 10000, owner: 10000, admin: 10000 }],
+      [
+        { PORT: '10000', RENTER_API_PORT: '3101', OWNER_API_PORT: '3102', ADMIN_API_PORT: '3103' },
+        { renter: 10000, owner: 10000, admin: 10000 },
+      ],
+    ])('resolves validated environment %j', (ports, expected) => {
+      process.env = { ...validEnvironment, ...ports };
+      // Nest ConfigModule injects validated defaults into process.env before loading factories.
+      const validated = validateEnvironment(process.env);
+      for (const [key, value] of Object.entries(validated)) process.env[key] = String(value);
+      expect(configuration()).toMatchObject({ app: { ports: expected } });
+    });
+
+    it.each(['1', '65535'])('accepts PORT boundary %s', (port) => {
+      expect(validateEnvironment({ ...validEnvironment, PORT: port }).PORT).toBe(Number(port));
+    });
+
+    it.each(['', '0', '-1', '65536', '1.5', 'NaN', '10000/socket'])(
+      'rejects invalid PORT %j',
+      (port) => {
+        expect(() => validateEnvironment({ ...validEnvironment, PORT: port })).toThrow(/PORT/);
+      },
+    );
+
+    it('keeps factory defaults when no optional environment values are set', () => {
+      process.env = {};
+      expect(configuration()).toMatchObject({
+        app: { ports: { renter: 3001, owner: 3002, admin: 3003 } },
+      });
+    });
+  });
+
   it('validates and converts the environment', () => {
     const result = validateEnvironment({
       ...validEnvironment,
